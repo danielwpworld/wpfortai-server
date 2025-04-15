@@ -1,0 +1,1134 @@
+{
+	"info": {
+		"_postman_id": "f7c429f4-ac4a-4cd4-b153-cf1fe127e5a9",
+		"name": "WPFort API Docs",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "12095256",
+		"_collection_link": "https://martian-spaceship-576992.postman.co/workspace/My-Workspace~92f5fd37-374d-4fbf-8944-04efdff08de7/collection/12095256-f7c429f4-ac4a-4cd4-b153-cf1fe127e5a9?action=share&source=collection_link&creator=12095256"
+	},
+	"item": [
+		{
+			"name": "Get Basic Site Info",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=site-info",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "site-info"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Plugin/Theme vulnerabilities",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=vulnerabilities",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "vulnerabilities"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Run Full File Scan",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=scan",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "scan"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Check Scan Status",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=scan-status/wpsec_67d00a05621da6.57635278",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "scan-status/wpsec_67d00a05621da6.57635278"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Latest Scan Results",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=results",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "results"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Toggle firewall on or off",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"active\": true\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=firewall/toggle",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "firewall/toggle"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Firewall Status",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://yanagurman.com/?wpsec_endpoint=firewall/status",
+					"protocol": "https",
+					"host": [
+						"yanagurman",
+						"com"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "firewall/status"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Firewall activity logs",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"active\": true\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=firewall/logs&period=30",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "firewall/logs"
+						},
+						{
+							"key": "period",
+							"value": "30"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Whitelist IP Firewall",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"action\": \"add\",\n    \"ip\": \"192.168.1.100\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=firewall/whitelist",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "firewall/whitelist"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Start Backup",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"type\": \"daily\",\n  \"incremental\": false\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=backup/start",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "backup/start"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Status of initiated Backup",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=backup/status/backup_67d00f2fe0cb11.52772252",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "backup/status/backup_67d00f2fe0cb11.52772252"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get a list of existing backups",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=backup/list",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "backup/list"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Restore a Backup",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=backup/restore/[Backup-ID]",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "backup/restore/[Backup-ID]"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Restore Status",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=backup/restore/status/[Restore-ID]",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "backup/restore/status/[Restore-ID]"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "WordPress Core Integrity Check",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=core-check",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "core-check"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update all plugins/themes ",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=update-all",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "update-all"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Update Specific plugin",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"type\": \"plugin\",\n    \"items\": [\n        {\"slug\": \"woocommerce\"}\n    ]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=update-items",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "update-items"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Health Check Detailed",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=health",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "health"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Health Check Light",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://test-wpworld.uk/?wpsec_endpoint=ping",
+					"protocol": "https",
+					"host": [
+						"test-wpworld",
+						"uk"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "ping"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Quarantine Single File",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/eicar.txt\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=quarantine",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "quarantine"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Quarantined Files",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=quarantine-list",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "quarantine-list"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Restore Quarantined File",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"quarantine_id\": \"q_67fb9e21ef88a1.95890761\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=restore",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "restore"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Single File (Safe)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/shell/index.html\",\n  \"scan_finding_id\": \"wpsec_67fb9b4457ef23.80569903\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/wp-json/wpsec/v1/delete",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						"wp-json",
+						"wpsec",
+						"v1",
+						"delete"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "BATCH Delete/Quarantine",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"operation\": \"quarantine\",\n  \"files\": [\n    {\n      \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/eicar.txt\"\n    },\n    {\n      \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/powershell/index.html\"\n\n    }\n  ]\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=batch-actions",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "batch-actions"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Inspect Infected Code of File",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/php/test.js\",\n  \"detection_type\": \"pattern\",\n  \"pattern\": \"eval\\\\s*\\\\(\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=inspect-file",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "inspect-file"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Inspect Infected Code - All Files From Scan",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"scan_results\": {\n    \"infected_files\": [\n      {\n        \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/eicar.txt\",\n        \"detections\": [\n          {\n            \"type\": \"signature\"\n          }\n        ]\n      },\n      {\n        \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/php/test.js\",\n        \"detections\": [\n          {\n            \"type\": \"pattern\",\n            \"pattern\": \"eval\\\\s*\\\\(\"\n          }\n        ]\n      }\n    ]\n  },\n  \"limit\": 5\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=inspect-scan-results",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "inspect-scan-results"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Whitelist File (Mark safe)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/php/test.js\",\n  \"reason\": \"False positive - legitimate plugin code\", //Optional\n  \"added_by\": \"user\" //optional\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=whitelist",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "whitelist"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Whitelisted Files",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/php/test.js\",\n  \"reason\": \"False positive - legitimate plugin code\", //Optional\n  \"added_by\": \"user\" //optional\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=whitelist/list&include_details=1&verify_integrity=1",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "whitelist/list"
+						},
+						{
+							"key": "include_details",
+							"value": "1"
+						},
+						{
+							"key": "verify_integrity",
+							"value": "1"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Remove file from Whitelist",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/php/test.js\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=whitelist/remove",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "whitelist/remove"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get whitelisting Integrity",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=whitelist/verify",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "whitelist/verify"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Cleanup whitelists",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-api-key",
+						"value": "sadasda78as78sda78sda78sfa687fajk",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"file_path\": \"/var/www/astrolia.ru/htdocs/wp-content/plugins/wp-file-manager/lib/codemirror/mode/php/test.js\",\n  \"reason\": \"False positive - legitimate plugin code\", //Optional\n  \"added_by\": \"user\" //optional\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://astrolia.ru/?wpsec_endpoint=whitelist/cleanup",
+					"protocol": "https",
+					"host": [
+						"astrolia",
+						"ru"
+					],
+					"path": [
+						""
+					],
+					"query": [
+						{
+							"key": "wpsec_endpoint",
+							"value": "whitelist/cleanup"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}

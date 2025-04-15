@@ -6,7 +6,7 @@ export interface StoredScanData {
   scan_id: string;
   started_at: string;
   status: ScanStatus['status'];
-  progress?: string;
+  progress?: number;
   files_scanned?: string;
   total_files?: string;
   completed_at?: string;

@@ -1,0 +1,6 @@
+now add a route that will be used as webhook to update a completed scan. it should
+- receive the scan id, and by scan id find the redis entry for the scan and get the domain.
+- Mark it as complete
+- Find website id by domain (update the db.ts file with relevant functions, right now it's empty)
+- Fetch /results to get the results of the latest scan
+ - finally, update websites_data table -> filesystem_layer with the results json.

@@ -1,15 +1,60 @@
 import fetch, { RequestInit } from 'node-fetch';
 import { ScanStore } from './scan-store';
-import { ScanResults } from '../types';
+export interface Detection {
+  type: 'anomaly' | 'signature';
+  name: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  confidence: number;
+  description: string;
+  file_hash?: string;
+  match?: string;
+  threat_score?: number;
+  hash_type?: string;
+  file_size?: number;
+}
+
+export interface FileContext {
+  type: 'plugin' | 'theme' | 'unknown';
+  is_core: boolean;
+  is_plugin: boolean;
+  is_theme: boolean;
+  is_upload: boolean;
+  has_plugin_header: boolean;
+  has_theme_header: boolean;
+  risk_level: 'low' | 'medium' | 'high';
+  is_known_safe_plugin: boolean;
+}
+
+export interface InfectedFile {
+  file_path: string;
+  threat_score: number;
+  confidence: number;
+  detections: Detection[];
+  context: FileContext;
+  scan_time: number;
+  file_size: number;
+  extension: string;
+}
+
+export interface ScanResults {
+  status: 'completed' | 'failed';
+  scan_id: string;
+  started_at: string;
+  infected_files: InfectedFile[];
+  total_files_scanned: string;
+  infected_count: string;
+  completed_at: string;
+  duration: string;
+}
 
 export interface ScanStatus {
-  scan_id: string;
+  scan_id?: string;
   status: 'pending' | 'running' | 'completed' | 'failed';
-  started_at: string;
-  progress: string;
-  files_scanned: string;
-  total_files: string;
-  results_endpoint: string;
+  started_at?: string;
+  progress?: number;
+  files_scanned?: string;
+  total_files?: string;
+  results_endpoint?: string;
   completed_at?: string;
   duration?: number;
 }

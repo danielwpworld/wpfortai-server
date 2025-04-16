@@ -139,6 +139,61 @@ export interface WhitelistedFile {
   status?: 'valid' | 'modified' | 'missing';
 }
 
+export interface QuarantinedFile {
+  quarantine_id: string;
+  original_path: string;
+  quarantine_path: string;
+  timestamp: string;
+  scan_finding_id: string | null;
+  file_size: number;
+  file_type: string;
+  file_hash: string | null;
+  detection_type: string;
+}
+
+export interface QuarantineListResponse {
+  status: 'success' | 'error';
+  count: number;
+  files: QuarantinedFile[];
+}
+
+export interface QuarantineResponse {
+  status: 'success' | 'error';
+  message: string;
+  file_path: string;
+  quarantine_id: string;
+  original_path: string;
+  quarantine_path: string;
+  timestamp: string;
+}
+
+export interface QuarantineRestoreResponse {
+  status: 'success' | 'error';
+  message: string;
+  quarantine_id: string;
+  original_path: string;
+  timestamp: string;
+}
+
+export interface BatchOperationResult {
+  file_path: string;
+  result: QuarantinedFile | boolean;
+  scan_finding_id: string;
+}
+
+export interface BatchOperationResponse {
+  status: 'success' | 'error';
+  message: string;
+  results: {
+    success: BatchOperationResult[];
+    failed: BatchOperationResult[];
+    total: number;
+    success_count: number;
+    failed_count: number;
+    operation: 'quarantine' | 'delete';
+  };
+}
+
 export interface CoreCheckResult {
   status: 'clean' | 'modified' | 'warning';
   modified_files?: string[];
@@ -325,6 +380,32 @@ export class WPSecAPI {
   async cleanupWhitelist(): Promise<void> {
     return this.request('whitelist/cleanup', {
       method: 'POST'
+    });
+  }
+
+  // Quarantine Management
+  async quarantineFile(filePath: string): Promise<QuarantineResponse> {
+    return this.request<QuarantineResponse>('quarantine', {
+      method: 'POST',
+      body: { file_path: filePath }
+    });
+  }
+
+  async getQuarantinedFiles(): Promise<QuarantineListResponse> {
+    return this.request<QuarantineListResponse>('quarantine-list');
+  }
+
+  async restoreQuarantinedFile(quarantineId: string): Promise<QuarantineRestoreResponse> {
+    return this.request<QuarantineRestoreResponse>('quarantine/restore', {
+      method: 'POST',
+      body: { quarantine_id: quarantineId }
+    });
+  }
+
+  async batchFileOperation(operation: 'delete' | 'quarantine', files: { file_path: string }[]): Promise<BatchOperationResponse> {
+    return this.request<BatchOperationResponse>('quarantine/batch', {
+      method: 'POST',
+      body: { operation, files }
     });
   }
 }

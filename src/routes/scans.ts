@@ -82,7 +82,8 @@ router.post('/:domain/start', async (req, res) => {
       component: 'scan-controller',
       event: 'scan_start_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -135,7 +136,8 @@ router.get('/:domain/status/:scanId', async (req, res) => {
     res.json(status);
   } catch (error) {
     console.error('Error getting scan status:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -179,7 +181,8 @@ router.get('/:domain/results/:scanId', async (req, res) => {
     res.json(results);
   } catch (error) {
     console.error('Error getting scan results:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -218,7 +221,8 @@ router.get('/:domain/active', async (req, res) => {
     res.json(activeScan);
   } catch (error) {
     console.error('Error getting active scan:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -262,7 +266,8 @@ router.post('/:domain/quarantine', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error quarantining file:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -285,7 +290,8 @@ router.get('/:domain/quarantine', async (req, res) => {
     res.json(files);
   } catch (error) {
     console.error('Error getting quarantined files:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -309,7 +315,8 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error restoring quarantined file:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -338,7 +345,8 @@ router.post('/:domain/quarantine/batch', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error processing batch operation:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 

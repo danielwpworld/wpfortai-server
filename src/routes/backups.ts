@@ -78,7 +78,8 @@ router.post('/:domain/start', async (req, res) => {
       component: 'backup-controller',
       event: 'backup_start_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -141,7 +142,8 @@ router.get('/:domain/status/:backupId', async (req, res) => {
       component: 'backup-controller',
       event: 'backup_status_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -164,7 +166,8 @@ router.get('/:domain/list', async (req, res) => {
     res.json(backups);
   } catch (error) {
     console.error('Error listing backups:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -187,7 +190,8 @@ router.post('/:domain/restore/:backupId', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error restoring backup:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -210,7 +214,8 @@ router.get('/:domain/restore/:restoreId/status', async (req, res) => {
     res.json(status);
   } catch (error) {
     console.error('Error getting restore status:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 

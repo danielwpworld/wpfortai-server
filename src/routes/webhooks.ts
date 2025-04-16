@@ -161,13 +161,14 @@ router.use(async (req, res, next) => {
   } catch (error) {
     logger.error({
       message: 'Error in webhook verification middleware',
-      error,
+      error: error instanceof Error ? error : new Error('Unknown error'),
       scanId: req.body.scan_id
     }, {
       component: 'webhook-middleware',
       event: 'webhook_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -217,7 +218,8 @@ router.post('/scan-progress', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error processing scan progress webhook:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -263,7 +265,8 @@ router.post('/scan-failed', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error processing scan failed webhook:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -324,7 +327,8 @@ router.post('/scan-complete', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error processing scan completion webhook:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 

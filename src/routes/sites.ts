@@ -60,7 +60,8 @@ router.get('/:domain/info', async (req, res) => {
       component: 'sites-controller',
       event: 'site_info_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -114,7 +115,8 @@ router.get('/:domain/vulnerabilities', async (req, res) => {
     res.json(vulnerabilities);
   } catch (error) {
     console.error('Error getting vulnerabilities:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -173,7 +175,8 @@ router.get('/:domain/core-check', async (req, res) => {
       component: 'sites-controller',
       event: 'core_check_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 

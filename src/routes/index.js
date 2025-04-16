@@ -1,0 +1,20 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+var express_1 = require("express");
+var sites_1 = require("./sites");
+var scans_1 = require("./scans");
+var webhooks_1 = require("./webhooks");
+var firewall_1 = require("./firewall");
+var whitelists_1 = require("./whitelists");
+var backups_1 = require("./backups");
+var webhook_secrets_1 = require("./webhook-secrets");
+var router = (0, express_1.Router)();
+// Mount routes
+router.use('/sites', sites_1.default);
+router.use('/scans', scans_1.default);
+router.use('/firewall', firewall_1.default);
+router.use('/backups', backups_1.default);
+router.use('/webhook-secrets', webhook_secrets_1.default);
+router.use('/whitelist', whitelists_1.default);
+router.use('/webhooks', webhooks_1.default);
+exports.default = router;

@@ -1,6 +1,7 @@
-import * as express from 'express';
-import * as cors from 'cors';
-import * as morgan from 'morgan';
+import express from 'express';
+import cors from 'cors';
+import morgan from 'morgan';
+import { Request, Response, NextFunction } from 'express';
 import { config } from 'dotenv';
 import { logger } from './services/logger';
 import router from './routes';
@@ -36,7 +37,7 @@ app.use(express.json());
 // Configure morgan to use our logger
 app.use(morgan('dev', {
   stream: {
-    write: (message) => {
+    write: (message: string) => {
       logger.debug({
         message: message.trim()
       }, {
@@ -48,7 +49,7 @@ app.use(morgan('dev', {
 }));
 
 // Log all requests
-app.use((req, res, next) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   logger.debug({
     message: 'Incoming request',
     method: req.method,

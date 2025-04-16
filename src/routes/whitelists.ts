@@ -66,7 +66,8 @@ router.post('/:domain', async (req, res) => {
       component: 'whitelist-controller',
       event: 'whitelist_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -131,7 +132,8 @@ router.get('/:domain/files', async (req, res) => {
       component: 'whitelist-controller',
       event: 'get_files_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -155,7 +157,8 @@ router.post('/:domain/remove', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error removing file from whitelist:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -178,7 +181,8 @@ router.get('/:domain/verify', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error verifying whitelist integrity:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -201,7 +205,8 @@ router.post('/:domain/cleanup', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error cleaning up whitelist:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 

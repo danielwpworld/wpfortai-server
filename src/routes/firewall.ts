@@ -59,7 +59,8 @@ router.get('/:domain/status', async (req, res) => {
       component: 'firewall-controller',
       event: 'firewall_status_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -115,7 +116,8 @@ router.post('/:domain/toggle', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error toggling firewall:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -168,7 +170,8 @@ router.get('/:domain/logs', async (req, res) => {
     res.json(logs);
   } catch (error) {
     console.error('Error getting firewall logs:', error);
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -237,7 +240,8 @@ router.post('/:domain/whitelist', async (req, res) => {
       component: 'firewall-controller',
       event: 'whitelist_error'
     });
-    res.status(500).json({ error: error.message });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
   }
 });
 

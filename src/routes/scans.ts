@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
 import { getWebsiteByDomain } from '../config/db';
+import { logger } from '../services/logger';
 
 const router = Router();
 
@@ -9,6 +10,15 @@ const router = Router();
 router.post('/:domain/start', async (req, res) => {
   try {
     const { domain } = req.params;
+
+    logger.debug({
+      message: 'Starting new scan',
+      domain,
+      body: req.body
+    }, {
+      component: 'scan-controller',
+      event: 'scan_start_request'
+    });
     
     // Check if website exists
     const website = await getWebsiteByDomain(domain);
@@ -17,8 +27,24 @@ router.post('/:domain/start', async (req, res) => {
     }
 
     // Check if there's already an active scan
+    logger.debug({
+      message: 'Checking for active scan',
+      domain
+    }, {
+      component: 'scan-controller',
+      event: 'check_active_scan'
+    });
+
     const activeScan = await ScanStore.getActiveScan(domain);
     if (activeScan) {
+      logger.info({
+        message: 'Active scan already exists',
+        domain,
+        activeScanId: activeScan.scan_id
+      }, {
+        component: 'scan-controller',
+        event: 'scan_already_active'
+      });
       return res.status(409).json({ error: 'A scan is already in progress', scan_id: activeScan.scan_id });
     }
 
@@ -26,10 +52,36 @@ router.post('/:domain/start', async (req, res) => {
     const api = new WPSecAPI(domain);
 
     // Start scan
+    logger.debug({
+      message: 'Initiating scan with WPSec API',
+      domain
+    }, {
+      component: 'scan-controller',
+      event: 'wpsec_scan_start'
+    });
+
     const scanData = await api.startScan();
+    
+    logger.info({
+      message: 'Scan started successfully',
+      domain,
+      scanId: scanData.scan_id
+    }, {
+      component: 'scan-controller',
+      event: 'scan_started'
+    });
+
     res.json(scanData);
-  } catch (error) {
-    console.error('Error starting scan:', error);
+  } catch (error: any) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error starting scan',
+      error,
+      domain: errorDomain
+    }, {
+      component: 'scan-controller',
+      event: 'scan_start_error'
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -38,6 +90,15 @@ router.post('/:domain/start', async (req, res) => {
 router.get('/:domain/status/:scanId', async (req, res) => {
   try {
     const { domain, scanId } = req.params;
+
+    logger.debug({
+      message: 'Getting scan status',
+      domain,
+      scanId
+    }, {
+      component: 'scan-controller',
+      event: 'get_scan_status'
+    });
 
     // Check if website exists
     const website = await getWebsiteByDomain(domain);
@@ -49,7 +110,28 @@ router.get('/:domain/status/:scanId', async (req, res) => {
     const api = new WPSecAPI(domain);
 
     // Get scan status
+    logger.debug({
+      message: 'Fetching scan status from WPSec API',
+      domain,
+      scanId
+    }, {
+      component: 'scan-controller',
+      event: 'fetch_scan_status'
+    });
+
     const status = await api.getScanStatus(scanId);
+
+    logger.info({
+      message: 'Scan status retrieved',
+      domain,
+      scanId,
+      status: status.status,
+      progress: status.progress
+    }, {
+      component: 'scan-controller',
+      event: 'scan_status_retrieved'
+    });
+
     res.json(status);
   } catch (error) {
     console.error('Error getting scan status:', error);
@@ -72,7 +154,28 @@ router.get('/:domain/results/:scanId', async (req, res) => {
     const api = new WPSecAPI(domain);
 
     // Get scan results
+    logger.debug({
+      message: 'Fetching scan results from WPSec API',
+      domain,
+      scanId
+    }, {
+      component: 'scan-controller',
+      event: 'fetch_scan_results'
+    });
+
     const results = await api.getScanResults(scanId);
+
+    logger.info({
+      message: 'Scan results retrieved',
+      domain,
+      scanId,
+      totalIssues: (results as any).issues?.length || 0,
+      totalFiles: (results as any).files?.length || 0
+    }, {
+      component: 'scan-controller',
+      event: 'scan_results_retrieved'
+    });
+
     res.json(results);
   } catch (error) {
     console.error('Error getting scan results:', error);
@@ -92,8 +195,23 @@ router.get('/:domain/active', async (req, res) => {
     }
 
     // Get active scan
+    logger.debug({
+      message: 'Checking for active scan',
+      domain
+    }, {
+      component: 'scan-controller',
+      event: 'check_active_scan'
+    });
+
     const activeScan = await ScanStore.getActiveScan(domain);
     if (!activeScan) {
+      logger.info({
+        message: 'No active scan found',
+        domain
+      }, {
+        component: 'scan-controller',
+        event: 'no_active_scan'
+      });
       return res.status(404).json({ error: 'No active scan found' });
     }
 
@@ -120,7 +238,27 @@ router.post('/:domain/quarantine', async (req, res) => {
     const api = new WPSecAPI(domain);
 
     // Quarantine file
+    logger.debug({
+      message: 'Quarantining file',
+      domain,
+      filePath: file_path
+    }, {
+      component: 'scan-controller',
+      event: 'quarantine_file'
+    });
+
     const result = await api.quarantineFile(file_path);
+
+    logger.info({
+      message: 'File quarantined successfully',
+      domain,
+      filePath: file_path,
+      quarantineId: result.quarantine_id
+    }, {
+      component: 'scan-controller',
+      event: 'file_quarantined'
+    });
+
     res.json(result);
   } catch (error) {
     console.error('Error quarantining file:', error);

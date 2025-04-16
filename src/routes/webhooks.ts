@@ -4,46 +4,148 @@ import { WPSecAPI } from '../services/wpsec';
 import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection } from '../config/db';
 import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
+import { logger } from '../services/logger';
 
 const router = Router();
 
 // Middleware to verify webhook signatures
 router.use(async (req, res, next) => {
   try {
+    logger.debug({ 
+      message: 'Webhook request received',
+      path: req.path,
+      method: req.method,
+      body: req.body
+    }, {
+      component: 'webhook-middleware'
+    });
     const scanId = req.body.scan_id;
     if (!scanId) {
       return res.status(400).json({ error: 'scan_id is required' });
     }
 
+    logger.debug({
+      message: 'Fetching scan data from Redis',
+      scanId
+    }, {
+      component: 'webhook-middleware',
+      event: 'fetch_scan_start'
+    });
+
     // Get scan data from Redis
     const scanData = await ScanStore.getScan(scanId);
     if (!scanData) {
+      logger.warn({
+        message: 'Scan not found in Redis',
+        scanId
+      }, {
+        component: 'webhook-middleware',
+        event: 'scan_not_found'
+      });
       return res.status(404).json({ error: 'Scan not found' });
     }
+
+    logger.debug({
+      message: 'Fetching website data',
+      domain: scanData.domain,
+      scanId
+    }, {
+      component: 'webhook-middleware',
+      event: 'fetch_website_start'
+    });
 
     // Get website
     const website = await getWebsiteByDomain(scanData.domain);
     if (!website) {
+      logger.warn({
+        message: 'Website not found',
+        domain: scanData.domain,
+        scanId
+      }, {
+        component: 'webhook-middleware',
+        event: 'website_not_found'
+      });
       return res.status(404).json({ error: 'Website not found' });
     }
+
+    logger.debug({
+      message: 'Fetching webhook secrets',
+      websiteId: website.id,
+      domain: scanData.domain,
+      scanId
+    }, {
+      component: 'webhook-middleware',
+      event: 'fetch_secrets_start'
+    });
 
     // Get webhook secrets
     const secrets = await WebhookSecrets.getWebhookSecret(website.id);
     if (!secrets) {
+      logger.warn({
+        message: 'No webhook secret configured',
+        websiteId: website.id,
+        domain: scanData.domain,
+        scanId
+      }, {
+        component: 'webhook-middleware',
+        event: 'no_webhook_secret'
+      });
       return res.status(401).json({ error: 'No webhook secret configured' });
     }
+
+    logger.debug({
+      message: 'Verifying webhook signature',
+      websiteId: website.id,
+      domain: scanData.domain,
+      scanId,
+      headers: {
+        signature: req.headers['x-wpfort-signature'],
+        timestamp: req.headers['x-wpfort-timestamp']
+      }
+    }, {
+      component: 'webhook-middleware',
+      event: 'verify_signature_start'
+    });
 
     // Try current secret first
     try {
       verifyWebhook(secrets.currentSecret)(req, res, () => {
+        logger.debug({
+          message: 'Webhook signature verified with current secret',
+          websiteId: website.id,
+          domain: scanData.domain,
+          scanId
+        }, {
+          component: 'webhook-middleware',
+          event: 'signature_verified'
+        });
         // Signature valid with current secret
         next();
       });
     } catch (e) {
       // If old secret exists and current secret failed, try old secret
       if (secrets.oldSecret) {
+        logger.debug({
+          message: 'Trying old secret for verification',
+          websiteId: website.id,
+          domain: scanData.domain,
+          scanId
+        }, {
+          component: 'webhook-middleware',
+          event: 'try_old_secret'
+        });
+
         try {
           verifyWebhook(secrets.oldSecret)(req, res, () => {
+            logger.debug({
+              message: 'Webhook signature verified with old secret',
+              websiteId: website.id,
+              domain: scanData.domain,
+              scanId
+            }, {
+              component: 'webhook-middleware',
+              event: 'signature_verified_old'
+            });
             // Signature valid with old secret
             next();
           });
@@ -57,7 +159,14 @@ router.use(async (req, res, next) => {
       }
     }
   } catch (error) {
-    console.error('Error in webhook verification middleware:', error);
+    logger.error({
+      message: 'Error in webhook verification middleware',
+      error,
+      scanId: req.body.scan_id
+    }, {
+      component: 'webhook-middleware',
+      event: 'webhook_error'
+    });
     res.status(500).json({ error: error.message });
   }
 });
@@ -65,6 +174,23 @@ router.use(async (req, res, next) => {
 // Webhook for scan progress updates
 router.post('/scan-progress', async (req, res) => {
   try {
+    logger.debug({
+      message: 'Processing scan progress webhook',
+      headers: req.headers,
+      body: req.body
+    }, {
+      component: 'scan-progress-webhook',
+      event: 'process_start'
+    });
+
+    logger.info({
+      message: 'Scan progress webhook received',
+      scanId: req.body.scan_id,
+      status: req.body.status,
+      progress: req.body.progress
+    }, {
+      component: 'scan-progress-webhook'
+    });
     const { scan_id, status, progress } = req.body;
     if (!scan_id) {
       return res.status(400).json({ error: 'scan_id is required' });

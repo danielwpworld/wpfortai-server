@@ -57,6 +57,7 @@ export interface ScanStatus {
   results_endpoint?: string;
   completed_at?: string;
   duration?: number;
+  error?: string;
 }
 
 export interface ScanStartResponse {

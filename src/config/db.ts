@@ -38,12 +38,14 @@ export async function createWebsiteScanResult(websiteId: number, scanData: {
   started_at: Date;
   completed_at: Date;
   duration: number;
+  status?: 'completed' | 'failed';
+  error_message?: string;
 }) {
   await pool.query(
     `INSERT INTO website_scans (
       website_id, scan_id, infected_files_count, total_files_count,
-      started_at, completed_at, duration_seconds
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      started_at, completed_at, duration_seconds, status, error_message
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       websiteId,
       scanData.scan_id,
@@ -51,7 +53,9 @@ export async function createWebsiteScanResult(websiteId: number, scanData: {
       scanData.total_files,
       scanData.started_at,
       scanData.completed_at,
-      scanData.duration
+      scanData.duration,
+      scanData.status || 'completed',
+      scanData.error_message
     ]
   );
 }

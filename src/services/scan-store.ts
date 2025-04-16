@@ -12,6 +12,7 @@ export interface StoredScanData {
   completed_at?: string;
   duration?: number;
   results_endpoint?: string;
+  error?: string;
 }
 
 export class ScanStore {

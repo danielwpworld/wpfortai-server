@@ -38,6 +38,52 @@ router.post('/scan-progress', async (req, res) => {
   }
 });
 
+// Webhook for scan failed
+router.post('/scan-failed', async (req, res) => {
+  try {
+    const { scan_id, error_message } = req.body;
+    if (!scan_id) {
+      return res.status(400).json({ error: 'scan_id is required' });
+    }
+
+    // Get scan data from Redis
+    const scanData = await ScanStore.getScan(scan_id);
+    if (!scanData) {
+      return res.status(404).json({ error: 'Scan not found' });
+    }
+
+    // Get website from database
+    const website = await getWebsiteByDomain(scanData.domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Update scan status in Redis
+    await ScanStore.updateScanStatus(scan_id, {
+      ...scanData,
+      status: 'failed',
+      error: error_message
+    });
+
+    // Store scan failure in database
+    await createWebsiteScanResult(website.id, {
+      scan_id,
+      infected_files: 0,
+      total_files: 0,
+      started_at: new Date(scanData.started_at || Date.now()),
+      completed_at: new Date(),
+      duration: 0,
+      status: 'failed',
+      error_message
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error processing scan failed webhook:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Webhook for scan completion
 router.post('/scan-complete', async (req, res) => {
   try {

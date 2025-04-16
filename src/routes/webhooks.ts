@@ -1,9 +1,45 @@
 import { Router } from 'express';
-import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
-import { getWebsiteByDomain, createWebsiteScanResult, createScanDetection } from '../config/db';
+import { WPSecAPI } from '../services/wpsec';
+import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection } from '../config/db';
+import { verifyWebhook } from '../middleware/verify-webhook';
+import { WebhookSecrets } from '../services/webhook-secrets';
 
 const router = Router();
+
+// Middleware to verify webhook signatures
+router.use(async (req, res, next) => {
+  try {
+    const scanId = req.body.scan_id;
+    if (!scanId) {
+      return res.status(400).json({ error: 'scan_id is required' });
+    }
+
+    // Get scan data from Redis
+    const scanData = await ScanStore.getScan(scanId);
+    if (!scanData) {
+      return res.status(404).json({ error: 'Scan not found' });
+    }
+
+    // Get website
+    const website = await getWebsiteByDomain(scanData.domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Get webhook secret
+    const secret = await WebhookSecrets.getWebhookSecret(website.id);
+    if (!secret) {
+      return res.status(401).json({ error: 'No webhook secret configured' });
+    }
+
+    // Verify webhook signature
+    verifyWebhook(secret)(req, res, next);
+  } catch (error) {
+    console.error('Error in webhook verification middleware:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Webhook for scan progress updates
 router.post('/scan-progress', async (req, res) => {

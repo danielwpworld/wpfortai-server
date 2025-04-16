@@ -3,6 +3,13 @@ import * as cors from 'cors';
 import * as morgan from 'morgan';
 import { config } from 'dotenv';
 import router from './routes';
+import sitesRouter from './routes/sites';
+import scansRouter from './routes/scans';
+import webhooksRouter from './routes/webhooks';
+import firewallRouter from './routes/firewall';
+import whitelistsRouter from './routes/whitelists';
+import backupsRouter from './routes/backups';
+import webhookSecretsRouter from './routes/webhook-secrets';
 
 // Load environment variables
 config({ path: '.env.local' });
@@ -22,6 +29,8 @@ app.use(morgan('dev'));
 
 // API routes
 app.use('/api', router);
+app.use('/api/backups', backupsRouter);
+app.use('/api/webhook-secrets', webhookSecretsRouter);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -27,14 +27,35 @@ router.use(async (req, res, next) => {
       return res.status(404).json({ error: 'Website not found' });
     }
 
-    // Get webhook secret
-    const secret = await WebhookSecrets.getWebhookSecret(website.id);
-    if (!secret) {
+    // Get webhook secrets
+    const secrets = await WebhookSecrets.getWebhookSecret(website.id);
+    if (!secrets) {
       return res.status(401).json({ error: 'No webhook secret configured' });
     }
 
-    // Verify webhook signature
-    verifyWebhook(secret)(req, res, next);
+    // Try current secret first
+    try {
+      verifyWebhook(secrets.currentSecret)(req, res, () => {
+        // Signature valid with current secret
+        next();
+      });
+    } catch (e) {
+      // If old secret exists and current secret failed, try old secret
+      if (secrets.oldSecret) {
+        try {
+          verifyWebhook(secrets.oldSecret)(req, res, () => {
+            // Signature valid with old secret
+            next();
+          });
+        } catch (e) {
+          // Both secrets failed
+          return res.status(401).json({ error: 'Invalid webhook signature' });
+        }
+      } else {
+        // No old secret to try
+        return res.status(401).json({ error: 'Invalid webhook signature' });
+      }
+    }
   } catch (error) {
     console.error('Error in webhook verification middleware:', error);
     res.status(500).json({ error: error.message });

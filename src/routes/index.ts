@@ -1,19 +1,21 @@
 import { Router } from 'express';
 import sitesRouter from './sites';
 import scansRouter from './scans';
-import firewallRouter from './firewall';
-import backupsRouter from './backups';
-import whitelistsRouter from './whitelists';
 import webhooksRouter from './webhooks';
+import firewallRouter from './firewall';
+import whitelistsRouter from './whitelists';
+import backupsRouter from './backups';
+import webhookSecretsRouter from './webhook-secrets';
 
 const router = Router();
 
-// Mount route modules
-router.use('/', sitesRouter);
-router.use('/', scansRouter);
-router.use('/', firewallRouter);
-router.use('/', backupsRouter);
+// Mount routes
+router.use('/sites', sitesRouter);
+router.use('/scans', scansRouter);
+router.use('/firewall', firewallRouter);
+router.use('/backups', backupsRouter);
+router.use('/webhook-secrets', webhookSecretsRouter);
 router.use('/whitelist', whitelistsRouter);
-router.use('/webhook', webhooksRouter);
+router.use('/webhooks', webhooksRouter);
 
 export default router;

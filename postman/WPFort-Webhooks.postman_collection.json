@@ -1,0 +1,202 @@
+{
+  "info": {
+    "name": "WPFort - Webhooks",
+    "description": "# WPFort Webhook System\n\n## Webhook Security\nAll webhooks require HMAC signature verification. Each request must include:\n- `x-wpfort-signature`: HMAC SHA256 signature\n- `x-wpfort-timestamp`: Current Unix timestamp in seconds\n\n### Signature Generation\n1. Get your webhook secret using the `/webhook-secrets/{domain}/webhook-secret` endpoint\n2. Create signature data: `timestamp + '.' + JSON.stringify(payload)`\n3. Generate HMAC: `hmac_sha256(signatureData, webhookSecret)`\n\n### PHP Example\n```php\n$timestamp = time();\n$payload = json_encode($data);\n$signatureData = $timestamp . '.' . $payload;\n$signature = hash_hmac('sha256', $signatureData, $webhookSecret);\n\n$headers = [\n    'x-wpfort-signature: ' . $signature,\n    'x-wpfort-timestamp: ' . $timestamp\n];\n```\n\n### Security Notes\n- Signatures are unique per request due to timestamp\n- Requests older than 5 minutes are rejected\n- Each website needs its own webhook secret\n- Secrets are automatically rotated when regenerated",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Webhook Secrets",
+      "item": [
+        {
+          "name": "Generate Webhook Secret",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/webhook-secrets/{{domain}}/webhook-secret",
+              "host": ["{{base_url}}"],
+              "path": ["webhook-secrets", "{{domain}}", "webhook-secret"]
+            },
+            "description": "Generate a new webhook secret for a website. If a secret already exists, it will be rotated."
+          }
+        },
+        {
+          "name": "Delete Webhook Secret",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/webhook-secrets/{{domain}}/webhook-secret",
+              "host": ["{{base_url}}"],
+              "path": ["webhook-secrets", "{{domain}}", "webhook-secret"]
+            },
+            "description": "Delete the webhook secret for a website. This will invalidate all future webhook calls until a new secret is generated."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scan Webhooks",
+      "item": [
+        {
+          "name": "Scan Progress Update",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-wpfort-signature",
+                "value": "{{signature}}",
+                "type": "text"
+              },
+              {
+                "key": "x-wpfort-timestamp",
+                "value": "{{timestamp}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"scan_id\": \"{{scan_id}}\",\n    \"status\": \"running\",\n    \"progress\": 45,\n    \"files_scanned\": \"450\",\n    \"total_files\": \"1000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/webhooks/scan-progress",
+              "host": ["{{base_url}}"],
+              "path": ["webhooks", "scan-progress"]
+            },
+            "description": "Update the progress of an ongoing scan. The signature must be generated using the website's webhook secret."
+          }
+        },
+        {
+          "name": "Scan Failed",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-wpfort-signature",
+                "value": "{{signature}}",
+                "type": "text"
+              },
+              {
+                "key": "x-wpfort-timestamp",
+                "value": "{{timestamp}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"scan_id\": \"{{scan_id}}\",\n    \"error_message\": \"Failed to access file: wp-content/uploads/malware.php\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/webhooks/scan-failed",
+              "host": ["{{base_url}}"],
+              "path": ["webhooks", "scan-failed"]
+            },
+            "description": "Mark a scan as failed with an error message."
+          }
+        },
+        {
+          "name": "Scan Complete",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-wpfort-signature",
+                "value": "{{signature}}",
+                "type": "text"
+              },
+              {
+                "key": "x-wpfort-timestamp",
+                "value": "{{timestamp}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"scan_id\": \"{{scan_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/webhooks/scan-complete",
+              "host": ["{{base_url}}"],
+              "path": ["webhooks", "scan-complete"]
+            },
+            "description": "Mark a scan as completed. This will fetch the final results from the WPSec API."
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Helper function to generate HMAC signature",
+          "const generateSignature = () => {",
+          "    // Get webhook secret from environment",
+          "    const secret = pm.environment.get('webhook_secret');",
+          "    if (!secret) {",
+          "        console.error('webhook_secret not set in environment');",
+          "        return;",
+          "    }",
+          "",
+          "    // Get request body",
+          "    let payload;",
+          "    try {",
+          "        payload = JSON.parse(pm.request.body.raw);",
+          "    } catch (e) {",
+          "        console.error('Invalid JSON in request body');",
+          "        return;",
+          "    }",
+          "",
+          "    // Generate signature",
+          "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+          "    const signatureData = timestamp + '.' + JSON.stringify(payload);",
+          "    const signature = CryptoJS.HmacSHA256(signatureData, secret).toString();",
+          "",
+          "    // Set environment variables",
+          "    pm.environment.set('signature', signature);",
+          "    pm.environment.set('timestamp', timestamp);",
+          "",
+          "    console.log('Generated signature for webhook:', {",
+          "        timestamp,",
+          "        payload,",
+          "        signature",
+          "    });",
+          "};",
+          "",
+          "// Run signature generation",
+          "generateSignature();"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001/api",
+      "type": "string"
+    },
+    {
+      "key": "domain",
+      "value": "example.com",
+      "type": "string"
+    }
+  ]
+}

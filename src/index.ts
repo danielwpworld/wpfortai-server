@@ -5,7 +5,12 @@ import { config } from 'dotenv';
 import router from './routes';
 
 // Load environment variables
-config();
+config({ path: '.env.local' });
+
+// Log environment variables
+console.log('Environment variables loaded:');
+console.log('DATABASE_URL:', process.env.DATABASE_URL);
+console.log('WPFORT_API_KEY:', process.env.WPFORT_API_KEY ? '***' : 'not set');
 
 // Create Express app
 const app = express();
@@ -27,7 +32,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

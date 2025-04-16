@@ -1,5 +1,8 @@
-import fetch, { RequestInit } from 'node-fetch';
+import * as nodeFetch from 'node-fetch';
+const fetch = nodeFetch.default;
+type RequestInit = nodeFetch.RequestInit;
 import { ScanStore } from './scan-store';
+
 export interface Detection {
   type: 'anomaly' | 'signature';
   name: string;

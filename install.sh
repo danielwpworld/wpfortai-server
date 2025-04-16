@@ -42,7 +42,7 @@ fi
 
 # Clone the repository using token
 echo -e "${YELLOW}Cloning WPFort server repository...${NC}"
-git clone https://oauth2:${GITHUB_TOKEN}@github.com/your-org/wpfort-server.git .
+git clone https://oauth2:${GITHUB_TOKEN}@github.com/danielwpworld/wpfortai-server.git .
 
 # Install npm dependencies
 echo -e "${YELLOW}Installing npm dependencies...${NC}"

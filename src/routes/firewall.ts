@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
+import type { FirewallStatus, FirewallLog } from '../types/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
 

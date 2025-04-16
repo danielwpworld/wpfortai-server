@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { ScanStore } from '../services/scan-store';
 import { WPSecAPI } from '../services/wpsec';
+import type { ScanResults } from '../types/wpsec';
 import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection } from '../config/db';
 import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
@@ -34,15 +35,16 @@ router.use(async (req, res, next) => {
 
     // Get scan data from Redis
     const scanData = await ScanStore.getScan(scanId);
-    if (!scanData) {
+    if (!scanData || !scanData.domain) {
       logger.warn({
-        message: 'Scan not found in Redis',
-        scanId
+        message: 'Scan not found in Redis or domain is missing',
+        scanId,
+        domain: scanData?.domain
       }, {
         component: 'webhook-middleware',
         event: 'scan_not_found'
       });
-      return res.status(404).json({ error: 'Scan not found' });
+      return res.status(404).json({ error: 'Scan not found or domain is missing' });
     }
 
     logger.debug({
@@ -233,8 +235,8 @@ router.post('/scan-failed', async (req, res) => {
 
     // Get scan data from Redis
     const scanData = await ScanStore.getScan(scan_id);
-    if (!scanData) {
-      return res.status(404).json({ error: 'Scan not found' });
+    if (!scanData || !scanData.domain) {
+      return res.status(404).json({ error: 'Scan not found or domain is missing' });
     }
 
     // Get website from database
@@ -280,8 +282,8 @@ router.post('/scan-complete', async (req, res) => {
 
     // Get scan data from Redis
     const scanData = await ScanStore.getScan(scan_id);
-    if (!scanData) {
-      return res.status(404).json({ error: 'Scan not found' });
+    if (!scanData || !scanData.domain) {
+      return res.status(404).json({ error: 'Scan not found or domain is missing' });
     }
 
     // Get website from database

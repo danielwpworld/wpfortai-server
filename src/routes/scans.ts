@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
+import type { ScanStartResponse, ScanStatus, ScanResults, QuarantineResponse, QuarantineListResponse, QuarantineRestoreResponse, BatchOperationResponse } from '../types/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
 

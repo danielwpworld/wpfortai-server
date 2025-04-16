@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
+import type { BackupStartResponse, BackupStatus, BackupList, RestoreResponse, RestoreStatus } from '../types/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
 

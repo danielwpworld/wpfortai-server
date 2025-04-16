@@ -1,5 +1,5 @@
 import redis from '../config/redis';
-import { ScanStartResponse, ScanStatus } from './wpsec';
+import { ScanStartResponse, ScanStatus } from '../types/wpsec';
 
 export interface StoredScanData {
   domain: string;

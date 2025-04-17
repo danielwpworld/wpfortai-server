@@ -231,14 +231,14 @@ export class WPSecAPI {
   }
 
   async restoreQuarantinedFile(quarantineId: string): Promise<QuarantineRestoreResponse> {
-    return this.request<QuarantineRestoreResponse>('quarantine/restore', {
+    return this.request<QuarantineRestoreResponse>('restore', {
       method: 'POST',
       body: { quarantine_id: quarantineId }
     });
   }
 
   async batchFileOperation(operation: 'delete' | 'quarantine', files: { file_path: string }[]): Promise<BatchOperationResponse> {
-    return this.request<BatchOperationResponse>('quarantine/batch', {
+    return this.request<BatchOperationResponse>('batch-actions', {
       method: 'POST',
       body: { operation, files }
     });

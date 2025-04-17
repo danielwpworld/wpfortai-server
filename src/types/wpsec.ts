@@ -164,6 +164,10 @@ export interface QuarantineResponse {
   original_path: string;
   quarantine_path: string;
   timestamp: string;
+  file_size?: number;
+  file_type?: string;
+  file_hash?: string | null;
+  detection_type?: string;
 }
 
 export interface QuarantineRestoreResponse {

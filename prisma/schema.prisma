@@ -29,105 +29,172 @@ enum SubscriptionStatus {
 }
 
 model User {
-  uid               String    @id @map("uid") @db.VarChar(255)
-  email             String?   @db.VarChar(255)
-  plan              String?   @db.VarChar(255)
-  stripeCustomerId  String?   @unique @map("stripe_customer_id") @db.VarChar(255)
-  subscriptions     Subscription[]
-  notifications     UserNotification?
-  websites          Website[]
-  websiteTransfers  WebsiteTransfer[]
+  uid              String            @id @map("uid") @db.VarChar(255)
+  email            String?           @db.VarChar(255)
+  plan             String?           @db.VarChar(255)
+  stripeCustomerId String?           @unique @map("stripe_customer_id") @db.VarChar(255)
+  subscriptions    Subscription[]
+  notifications    UserNotification?
+  websites         Website[]
+  websiteTransfers WebsiteTransfer[]
 }
 
 model Plan {
-  id             String       @id @db.VarChar(50)
-  name           String       @db.VarChar(100)
-  interval       PlanInterval?
-  tier           PlanTier
-  active         Boolean      @default(true)
-  stripePriceId  String?      @map("stripe_price_id") @db.VarChar(255)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
-  subscriptions  Subscription[]
+  id            String         @id @db.VarChar(50)
+  name          String         @db.VarChar(100)
+  interval      PlanInterval?
+  tier          PlanTier
+  active        Boolean        @default(true)
+  stripePriceId String?        @map("stripe_price_id") @db.VarChar(255)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  subscriptions Subscription[]
 
   @@index([stripePriceId])
   @@index([tier])
 }
 
-model Subscription {
-  id                  String             @id @default(uuid())
-  status              SubscriptionStatus
-  currentPeriodStart  DateTime?          @map("current_period_start") @db.Timestamptz
-  currentPeriodEnd    DateTime?          @map("current_period_end") @db.Timestamptz
-  trialEndsAt         DateTime?          @map("trial_ends_at") @db.Timestamptz
-  cancelAtPeriodEnd   Boolean            @default(false) @map("cancel_at_period_end")
-  canceledAt          DateTime?          @map("canceled_at") @db.Timestamptz
-  endedAt             DateTime?          @map("ended_at") @db.Timestamptz
-  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime           @default(now()) @map("updated_at") @db.Timestamptz
-  userId              String             @map("user_id") @db.VarChar(255)
-  planId              String             @map("plan_id") @db.VarChar(50)
-  stripeSubscriptionId String?           @map("stripe_subscription_id") @db.VarChar(255)
-  user                User               @relation(fields: [userId], references: [uid])
-  plan                Plan               @relation(fields: [planId], references: [id])
-
-  @@index([userId])
-  @@index([planId])
-  @@index([stripeSubscriptionId])
-  @@index([status])
-  @@index([currentPeriodEnd])
-}
-
 model Website {
-  id                    String              @id @default(uuid())
-  domain                String
-  uid                   String
-  updatedAt             DateTime?           @default(now()) @map("updated_at") @db.Timestamptz
-  initialPluginInstalled Boolean?           @default(false) @map("initial_plugin_installed")
-  data                  WebsiteData?
-  insights             Insight[]
-  recommendedActions   RecommendedAction[]
-  transfers            WebsiteTransfer[]
-  user                 User                @relation(fields: [uid], references: [uid])
+  id                     String              @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  domain                 String              @db.Text
+  uid                    String              @db.Text
+  updatedAt              DateTime?           @default(now()) @map("updated_at") @db.Timestamptz
+  initialPluginInstalled Boolean?            @default(false) @map("initial_plugin_installed")
+  user                   User                @relation(fields: [uid], references: [uid])
+  scans                  WebsiteScan[]
+  webhookSecrets         WebhookSecret[]
+  insights               Insight[]
+  recommendedActions     RecommendedAction[]
+  data                   WebsiteData?
+  transfers              WebsiteTransfer[]
+  ScanDetection          ScanDetection[]
+
+  @@index([domain])
+  @@index([uid])
 }
 
-model WebsiteData {
-  id              String    @id @default(uuid())
-  websiteId       String    @unique @map("website_id")
-  website         Website   @relation(fields: [websiteId], references: [id])
-  wpcoreLayer     Json?     @map("wpcore_layer") @db.JsonB
-  filesystemLayer Json?     @map("filesystem_layer") @db.JsonB
-  applicationLayer Json?    @map("application_layer") @db.JsonB
-  networkLayer    Json?     @map("network_layer") @db.JsonB
-  wpInfo          Json?     @map("wp_info") @db.JsonB
-  networkStatus   Json?     @map("network_status") @db.JsonB
-  fetchedAt       DateTime  @default(now()) @map("fetched_at") @db.Timestamptz
+model WebsiteScan {
+  id                 Int             @id @default(autoincrement())
+  websiteId          String          @map("website_id") @db.Uuid
+  completedAt        DateTime?       @map("completed_at") @db.Timestamptz
+  durationSeconds    Int?            @map("duration_seconds")
+  createdAt          DateTime?       @default(now()) @map("created_at") @db.Timestamptz
+  infectedFilesCount Int?            @map("infected_files_count")
+  totalFilesCount    Int?            @map("total_files_count")
+  startedAt          DateTime?       @map("started_at") @db.Timestamptz
+  scanId             String          @unique @map("scan_id") @db.VarChar
+  status             String?         @db.VarChar
+  errorMessage       String?         @map("error_message") @db.Text
+  website            Website         @relation(fields: [websiteId], references: [id])
+  detections         ScanDetection[]
+
+  @@index([websiteId])
+  @@index([scanId])
+  @@map("website_scans")
+}
+
+model ScanDetection {
+  id            Int                    @id @default(autoincrement())
+  websiteId     String                 @map("website_id") @db.Uuid
+  scanId        String                 @map("scan_id") @db.VarChar
+  filePath      String                 @map("file_path") @db.Text
+  threatScore   Int                    @map("threat_score")
+  confidence    Int
+  detectionType String                 @map("detection_type") @db.VarChar
+  severity      String                 @db.VarChar
+  description   String                 @db.Text
+  fileHash      String?                @map("file_hash") @db.VarChar
+  fileSize      Int                    @map("file_size")
+  contextType   String                 @map("context_type") @db.VarChar
+  riskLevel     String                 @map("risk_level") @db.VarChar
+  createdAt     DateTime?              @default(now()) @map("created_at") @db.Timestamptz
+  status        String?                @default("active") @db.VarChar
+  website       Website                @relation(fields: [websiteId], references: [id])
+  websiteScan   WebsiteScan            @relation(fields: [scanId], references: [scanId])
+  quarantined   QuarantinedDetection[]
+  deleted       DeletedDetection[]
+
+  @@index([websiteId])
+  @@index([scanId])
+  @@map("scan_detections")
+}
+
+model WebhookSecret {
+  id                Int       @id @default(autoincrement())
+  websiteId         String    @map("website_id") @db.Uuid
+  secretKey         String    @map("secret_key") @db.VarChar
+  createdAt         DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  oldSecretKey      String?   @map("old_secret_key") @db.VarChar
+  rotationStartedAt DateTime? @map("rotation_started_at") @db.Timestamptz
+  lastUsedAt        DateTime? @default(now()) @map("last_used_at") @db.Timestamptz
+  website           Website   @relation(fields: [websiteId], references: [id])
+
+  @@index([websiteId])
+  @@map("webhook_secrets")
+}
+
+model QuarantinedDetection {
+  id              Int            @id @default(autoincrement())
+  scanDetectionId Int?           @map("scan_detection_id")
+  quarantineId    String         @map("quarantine_id") @db.VarChar
+  originalPath    String         @map("original_path") @db.Text
+  quarantinePath  String         @map("quarantine_path") @db.Text
+  timestamp       DateTime       @db.Timestamp
+  scanFindingId   String?        @map("scan_finding_id") @db.VarChar
+  fileSize        Int?           @map("file_size")
+  fileType        String?        @map("file_type") @db.VarChar
+  fileHash        String?        @map("file_hash") @db.VarChar
+  detectionType   String         @map("detection_type") @db.VarChar
+  createdAt       DateTime?      @default(now()) @map("created_at") @db.Timestamp
+  scanDetection   ScanDetection? @relation(fields: [scanDetectionId], references: [id])
+
+  @@index([scanDetectionId])
+  @@index([quarantineId])
+  @@map("quarantined_detections")
+}
+
+model DeletedDetection {
+  id              Int            @id @default(autoincrement())
+  scanDetectionId Int?           @map("scan_detection_id")
+  filePath        String         @map("file_path") @db.Text
+  timestamp       DateTime       @db.Timestamp
+  scanFindingId   String?        @map("scan_finding_id") @db.VarChar
+  createdAt       DateTime?      @default(now()) @map("created_at") @db.Timestamp
+  scanDetection   ScanDetection? @relation(fields: [scanDetectionId], references: [id])
+
+  @@index([scanDetectionId])
+  @@map("deleted_detections")
 }
 
 model Insight {
-  id          String    @id @default(uuid())
-  websiteId   String    @map("website_id")
-  metadata    Json      @default("{}") @db.JsonB
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz
-  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
-  severity    String    @db.VarChar(20)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  websiteId   String    @map("website_id") @db.Uuid
   layer       String    @db.VarChar(50)
   type        String    @db.VarChar(50)
   title       String    @db.Text
   description String    @db.Text
+  severity    String    @db.VarChar(20)
+  metadata    Json      @default("{}") @db.JsonB
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz
   website     Website   @relation(fields: [websiteId], references: [id])
+
+  @@index([websiteId])
+  @@index([layer])
+  @@index([severity])
+  @@map("insights")
 }
 
 model RecommendedAction {
-  id          String    @id @default(uuid())
-  websiteId   String    @map("website_id")
-  layerType   String    @map("layer_type") @db.VarChar(50)
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  websiteId   String    @map("website_id") @db.Uuid
   actionId    String    @map("action_id") @db.VarChar(255)
   title       String    @db.VarChar(255)
   description String    @db.Text
   severity    String    @db.VarChar(50)
   isLink      Boolean?  @default(false) @map("is_link")
   href        String?   @db.VarChar(1024)
+  layerType   String    @map("layer_type") @db.VarChar(50)
   isApplied   Boolean?  @default(false) @map("is_applied")
   createdAt   DateTime? @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime? @default(now()) @map("updated_at") @db.Timestamptz
@@ -136,25 +203,69 @@ model RecommendedAction {
   @@index([websiteId])
   @@index([layerType])
   @@index([severity])
+  @@map("recommended_actions")
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  status               SubscriptionStatus
+  currentPeriodStart   DateTime?          @map("current_period_start") @db.Timestamptz
+  currentPeriodEnd     DateTime?          @map("current_period_end") @db.Timestamptz
+  trialEndsAt          DateTime?          @map("trial_ends_at") @db.Timestamptz
+  cancelAtPeriodEnd    Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt           DateTime?          @map("canceled_at") @db.Timestamptz
+  endedAt              DateTime?          @map("ended_at") @db.Timestamptz
+  createdAt            DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime           @default(now()) @map("updated_at") @db.Timestamptz
+  userId               String             @map("user_id") @db.VarChar(255)
+  planId               String             @map("plan_id") @db.VarChar(50)
+  stripeSubscriptionId String?            @map("stripe_subscription_id") @db.VarChar(255)
+  user                 User               @relation(fields: [userId], references: [uid])
+  plan                 Plan               @relation(fields: [planId], references: [id])
+
+  @@index([userId])
+  @@index([planId])
+  @@index([stripeSubscriptionId])
+  @@index([status])
+  @@index([currentPeriodEnd])
+}
+
+model WebsiteData {
+  id               String   @id @default(uuid())
+  websiteId        String   @unique @map("website_id") @db.Uuid
+  website          Website  @relation(fields: [websiteId], references: [id])
+  wpcoreLayer      Json?    @map("wpcore_layer") @db.JsonB
+  filesystemLayer  Json?    @map("filesystem_layer") @db.JsonB
+  applicationLayer Json?    @map("application_layer") @db.JsonB
+  networkLayer     Json?    @map("network_layer") @db.JsonB
+  wpInfo           Json?    @map("wp_info") @db.JsonB
+  networkStatus    Json?    @map("network_status") @db.JsonB
+  fetchedAt        DateTime @default(now()) @map("fetched_at") @db.Timestamptz
+
+  @@map("website_data")
 }
 
 model UserNotification {
-  uid                String   @id @db.VarChar(255)
-  urgentAlerts       Boolean? @default(true) @map("urgent_alerts")
-  insights           Boolean? @default(true)
-  recommendedActions Boolean? @default(true) @map("recommended_actions")
+  uid                String    @id @db.VarChar(255)
+  urgentAlerts       Boolean?  @default(true) @map("urgent_alerts")
+  insights           Boolean?  @default(true)
+  recommendedActions Boolean?  @default(true) @map("recommended_actions")
   createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime? @default(now()) @map("updated_at") @db.Timestamptz
-  user               User     @relation(fields: [uid], references: [uid])
+  user               User      @relation(fields: [uid], references: [uid])
 }
 
 model WebsiteTransfer {
   id        String    @id @default(uuid())
-  websiteId String    @map("website_id")
-  uid       String
-  domain    String
+  websiteId String    @map("website_id") @db.Uuid
+  uid       String    @db.VarChar(255)
+  domain    String    @db.VarChar(255)
   createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime? @default(now()) @map("updated_at") @db.Timestamptz
   website   Website   @relation(fields: [websiteId], references: [id])
   user      User      @relation(fields: [uid], references: [uid])
+
+  @@index([websiteId])
+  @@index([uid])
+  @@map("website_transfers")
 }

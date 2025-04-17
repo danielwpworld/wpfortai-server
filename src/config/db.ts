@@ -167,54 +167,37 @@ export async function createScanDetection(websiteId: string | number, scanId: st
   risk_level: string;
 }) {
   try {
-    logger.debug({
-      message: 'Creating scan detection',
+    const query = `
+      INSERT INTO scan_detections (
+        website_id, scan_id, file_path, threat_score, confidence, detection_type, 
+        severity, description, file_hash, file_size, context_type, risk_level
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id
+    `;
+
+    const values = [
       websiteId,
       scanId,
-      filePath: detection.file_path,
-      detectionType: detection.detection_type,
-      severity: detection.severity
-    }, {
-      component: 'database',
-      event: 'create_detection'
-    });
+      detection.file_path,
+      detection.threat_score,
+      detection.confidence,
+      detection.detection_type,
+      detection.severity,
+      detection.description,
+      detection.file_hash || null,
+      detection.file_size,
+      detection.context_type,
+      detection.risk_level
+    ];
 
-    await pool.query(
-      `INSERT INTO scan_detections (
-        website_id, scan_id, file_path, threat_score, confidence,
-        detection_type, severity, description, file_hash, file_size,
-        context_type, risk_level
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        websiteId,
-        scanId,
-        detection.file_path,
-        detection.threat_score,
-        detection.confidence,
-        detection.detection_type,
-        detection.severity,
-        detection.description,
-        detection.file_hash,
-        detection.file_size,
-        detection.context_type,
-        detection.risk_level
-      ]
-    );
-
-    logger.info({
-      message: 'Scan detection created',
-      websiteId,
-      scanId,
-      filePath: detection.file_path,
-      severity: detection.severity
-    }, {
-      component: 'database',
-      event: 'detection_created'
-    });
-  } catch (error: any) {
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
     logger.error({
       message: 'Error creating scan detection',
-      error,
+      error: err, // Pass the Error object, not just the message
       websiteId,
       scanId,
       filePath: detection.file_path
@@ -222,7 +205,252 @@ export async function createScanDetection(websiteId: string | number, scanId: st
       component: 'database',
       event: 'detection_error'
     });
-    throw error;
+    throw err;
+  }
+}
+
+/**
+ * Update the status of a scan detection
+ * @param detectionId The ID of the scan detection to update
+ * @param status The new status to set
+ * @returns The updated scan detection
+ */
+export async function updateScanDetectionStatus(detectionId: string | number, status: string) {
+  try {
+    const query = `
+      UPDATE scan_detections
+      SET status = $1
+      WHERE id = $2
+      RETURNING id, status
+    `;
+
+    const values = [status, detectionId];
+
+    const result = await pool.query(query, values);
+    
+    if (result.rows.length === 0) {
+      throw new Error(`Scan detection with ID ${detectionId} not found`);
+    }
+    
+    return result.rows[0];
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error updating scan detection status',
+      error: err, // Pass the Error object, not just the message
+      detectionId,
+      status
+    }, {
+      component: 'database',
+      event: 'update_scan_detection_status_error'
+    });
+    throw err;
+  }
+}
+
+/**
+ * Create a new quarantined detection record
+ * @param detection The quarantined detection data
+ * @returns The created quarantined detection
+ */
+export async function createQuarantinedDetection(detection: {
+  scan_detection_id: number | null;
+  quarantine_id: string;
+  original_path: string;
+  quarantine_path: string;
+  timestamp: Date;
+  scan_finding_id?: string | null;
+  file_size?: number;
+  file_type?: string;
+  file_hash?: string | null;
+  detection_type: string;
+}) {
+  try {
+    const query = `
+      INSERT INTO quarantined_detections (
+        scan_detection_id, quarantine_id, original_path, quarantine_path, timestamp,
+        scan_finding_id, file_size, file_type, file_hash, detection_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id
+    `;
+
+    const values = [
+      detection.scan_detection_id,
+      detection.quarantine_id,
+      detection.original_path,
+      detection.quarantine_path,
+      detection.timestamp,
+      detection.scan_finding_id || null,
+      detection.file_size || 0,
+      detection.file_type || 'unknown',
+      detection.file_hash || null,
+      detection.detection_type
+    ];
+
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error creating quarantined detection',
+      error: err, // Pass the Error object, not just the message
+      quarantineId: detection.quarantine_id,
+      originalPath: detection.original_path
+    }, {
+      component: 'database',
+      event: 'create_quarantined_detection_error'
+    });
+    throw err;
+  }
+}
+
+/**
+ * Remove a quarantined detection record by quarantine_id
+ * @param quarantineId The quarantine ID to remove
+ * @returns The deleted quarantined detection
+ */
+export async function removeQuarantinedDetection(quarantineId: string) {
+  try {
+    // First, get the scan_detection_id from the quarantined_detections table
+    const getQuery = `
+      SELECT scan_detection_id 
+      FROM quarantined_detections 
+      WHERE quarantine_id = $1
+    `;
+    
+    const getResult = await pool.query(getQuery, [quarantineId]);
+    
+    if (getResult.rows.length === 0) {
+      throw new Error(`Quarantined detection with ID ${quarantineId} not found`);
+    }
+    
+    const scanDetectionId = getResult.rows[0].scan_detection_id;
+    
+    // Then delete the record
+    const deleteQuery = `
+      DELETE FROM quarantined_detections
+      WHERE quarantine_id = $1
+      RETURNING *
+    `;
+
+    const deleteResult = await pool.query(deleteQuery, [quarantineId]);
+    
+    if (deleteResult.rows.length === 0) {
+      throw new Error(`Quarantined detection with ID ${quarantineId} not found`);
+    }
+    
+    return { 
+      deletedRecord: deleteResult.rows[0],
+      scanDetectionId
+    };
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error removing quarantined detection',
+      error: err, // Pass the Error object, not just the message
+      quarantineId
+    }, {
+      component: 'database',
+      event: 'remove_quarantined_detection_error'
+    });
+    throw err;
+  }
+}
+
+/**
+ * Move a quarantined detection to deleted_detections and remove it from quarantined_detections
+ * @param quarantineId The quarantine ID of the file to move
+ * @returns The created deleted detection record
+ */
+export async function moveQuarantinedToDeleted(quarantineId: string) {
+  try {
+    // Start a transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // First, get the quarantined detection record
+      const getQuery = `
+        SELECT * FROM quarantined_detections 
+        WHERE quarantine_id = $1
+      `;
+      
+      const getResult = await client.query(getQuery, [quarantineId]);
+      
+      if (getResult.rows.length === 0) {
+        throw new Error(`Quarantined detection with ID ${quarantineId} not found`);
+      }
+      
+      const quarantinedDetection = getResult.rows[0];
+      
+      // Create a record in deleted_detections
+      const insertQuery = `
+        INSERT INTO deleted_detections (
+          scan_detection_id, file_path, timestamp, scan_finding_id
+        ) VALUES ($1, $2, $3, $4)
+        RETURNING id
+      `;
+      
+      const insertValues = [
+        quarantinedDetection.scan_detection_id,
+        quarantinedDetection.original_path,
+        new Date(),
+        quarantinedDetection.scan_finding_id
+      ];
+      
+      const insertResult = await client.query(insertQuery, insertValues);
+      
+      // Update the scan detection status to 'deleted'
+      if (quarantinedDetection.scan_detection_id) {
+        const updateQuery = `
+          UPDATE scan_detections
+          SET status = 'deleted'
+          WHERE id = $1
+          RETURNING id, status
+        `;
+        
+        await client.query(updateQuery, [quarantinedDetection.scan_detection_id]);
+      }
+      
+      // Delete the record from quarantined_detections
+      const deleteQuery = `
+        DELETE FROM quarantined_detections
+        WHERE quarantine_id = $1
+      `;
+      
+      await client.query(deleteQuery, [quarantineId]);
+      
+      // Commit the transaction
+      await client.query('COMMIT');
+      
+      return {
+        deletedDetectionId: insertResult.rows[0].id,
+        scanDetectionId: quarantinedDetection.scan_detection_id,
+        filePath: quarantinedDetection.original_path
+      };
+    } catch (error) {
+      // Rollback the transaction if any error occurs
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      // Release the client back to the pool
+      client.release();
+    }
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error moving quarantined detection to deleted',
+      error: err, // Pass the Error object, not just the message
+      quarantineId
+    }, {
+      component: 'database',
+      event: 'move_quarantined_to_deleted_error'
+    });
+    throw err;
   }
 }
 

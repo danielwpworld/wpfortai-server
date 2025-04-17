@@ -109,8 +109,9 @@ export class WPSecAPI {
     return status;
   }
 
-  async getScanResults(scanId: string): Promise<ScanResults> {
-    return this.request<ScanResults>(`scan/${scanId}/results`);
+  async getScanResults(scanId?: string): Promise<ScanResults> {
+    // WPSec API only supports getting the latest scan results, scanId is ignored
+    return this.request<ScanResults>('results');
   }
 
   // Firewall Management

@@ -292,37 +292,67 @@ router.post('/scan-complete', async (req, res) => {
       return res.status(404).json({ error: 'Website not found' });
     }
 
+    logger.debug({
+      message: 'Website found',
+      domain: scanData.domain,
+      found: !!website
+    });
+
     // Create WPSec API instance
     const api = new WPSecAPI(scanData.domain);
 
     // Fetch scan results
-    const results = await api.getScanResults(scan_id);
+    let results;
+    try {
+      results = await api.getScanResults(scan_id);
+      
+      // Store scan results in database with data from WPSec API
+      await createWebsiteScanResult(website.id, {
+        scan_id,
+        infected_files: parseInt(results.infected_count) || 0,
+        total_files: parseInt(results.total_files_scanned) || 0,
+        started_at: new Date(results.started_at || scanData.started_at),
+        completed_at: new Date(results.completed_at || Date.now()),
+        duration: parseInt(results.duration) || 0,
+        status: 'completed'
+      });
+    } catch (error) {
+      logger.warn({
+        message: 'Failed to fetch scan results from WPSec API',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        scan_id,
+        domain: scanData.domain
+      });
+      
+      // Store basic scan results using data from Redis
+      await createWebsiteScanResult(website.id, {
+        scan_id,
+        infected_files: 0,
+        total_files: parseInt(scanData.total_files || '0'),
+        started_at: new Date(scanData.started_at),
+        completed_at: new Date(),
+        duration: 0,
+        status: 'completed'
+      });
+    }
 
-    // Store scan results in database
-    await createWebsiteScanResult(website.id, {
-      scan_id,
-      infected_files: parseInt(results.infected_count),
-      total_files: parseInt(results.total_files_scanned),
-      started_at: new Date(results.started_at),
-      completed_at: new Date(results.completed_at),
-      duration: parseInt(results.duration)
-    });
-
-    // Store detections in database
-    for (const file of results.infected_files) {
-      for (const detection of file.detections) {
-        await createScanDetection(website.id, scan_id, {
-          file_path: file.file_path,
-          threat_score: file.threat_score,
-          confidence: file.confidence,
-          detection_type: detection.type,
-          severity: detection.severity,
-          description: detection.description,
-          file_hash: detection.file_hash,
-          file_size: file.file_size,
-          context_type: file.context.type,
-          risk_level: file.context.risk_level
-        });
+    // Store detections in database if results were fetched successfully
+    if (results && results.infected_files) {
+      for (const file of results.infected_files) {
+        for (const detection of file.detections) {
+          await createScanDetection(website.id, scan_id, {
+            file_path: file.file_path,
+            threat_score: file.threat_score,
+            confidence: file.confidence,
+            detection_type: detection.type,
+            severity: detection.severity,
+            description: detection.description,
+            file_hash: detection.file_hash,
+            file_size: file.file_size,
+            context_type: file.context.type,
+            risk_level: file.context.risk_level
+          });
+        }
       }
     }
 

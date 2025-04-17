@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "WPFort - Webhooks",
-    "description": "# WPFort Webhook System\n\n## Webhook Security\nAll webhooks require HMAC signature verification. Each request must include:\n- `x-wpfort-signature`: HMAC SHA256 signature\n- `x-wpfort-timestamp`: Current Unix timestamp in seconds\n\n### Signature Generation\n1. Get your webhook secret using the `/webhook-secrets/{domain}/webhook-secret` endpoint\n2. Create signature data: `timestamp + '.' + JSON.stringify(payload)`\n3. Generate HMAC: `hmac_sha256(signatureData, webhookSecret)`\n\n### PHP Example\n```php\n$timestamp = time();\n$payload = json_encode($data);\n$signatureData = $timestamp . '.' . $payload;\n$signature = hash_hmac('sha256', $signatureData, $webhookSecret);\n\n$headers = [\n    'x-wpfort-signature: ' . $signature,\n    'x-wpfort-timestamp: ' . $timestamp\n];\n```\n\n### Security Notes\n- Signatures are unique per request due to timestamp\n- Requests older than 5 minutes are rejected\n- Each website needs its own webhook secret\n- Secrets are automatically rotated when regenerated",
+    "name": "WPFort API",
+    "description": "# WPFort API Collection\n\nThis collection contains all endpoints for the WPFort API, including webhooks.\n\n## Webhook Security\nAll webhooks require HMAC signature verification. Each request must include:\n- `x-wpfort-signature`: HMAC SHA256 signature\n- `x-wpfort-timestamp`: Current Unix timestamp in seconds\n\n### Signature Generation\n1. Get your webhook secret using the `/webhook-secrets/{domain}/webhook-secret` endpoint\n2. Create signature data: `timestamp + '.' + JSON.stringify(payload)`\n3. Generate HMAC: `hmac_sha256(signatureData, webhookSecret)`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -32,6 +32,142 @@
               "path": ["webhook-secrets", "{{domain}}", "webhook-secret"]
             },
             "description": "Delete the webhook secret for a website. This will invalidate all future webhook calls until a new secret is generated."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scans",
+      "item": [
+        {
+          "name": "Start Scan",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/start",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "start"]
+            },
+            "description": "Start a new security scan for a website. Returns an error if a scan is already in progress."
+          }
+        },
+        {
+          "name": "Get Scan Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/status/{{scan_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "status", "{{scan_id}}"]
+            },
+            "description": "Get the status of a specific scan by ID."
+          }
+        },
+        {
+          "name": "Get Scan Results",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/results/{{scan_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "results", "{{scan_id}}"]
+            },
+            "description": "Get the results of a completed scan."
+          }
+        },
+        {
+          "name": "Get Active Scan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/active",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "active"]
+            },
+            "description": "Check if there's an active scan for a website and get its details."
+          }
+        },
+        {
+          "name": "Quarantine File",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"file_path\": \"wp-content/uploads/suspicious-file.php\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/quarantine",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "quarantine"]
+            },
+            "description": "Quarantine a suspicious file to prevent it from executing."
+          }
+        },
+        {
+          "name": "Get Quarantined Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/quarantine",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "quarantine"]
+            },
+            "description": "Get a list of all quarantined files for a website."
+          }
+        },
+        {
+          "name": "Restore Quarantined File",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"quarantine_id\": \"q12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/quarantine/restore",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "quarantine", "restore"]
+            },
+            "description": "Restore a previously quarantined file."
+          }
+        },
+        {
+          "name": "Batch Quarantine/Delete Files",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"operation\": \"quarantine\",\n    \"files\": [\n        \"wp-content/uploads/suspicious-file1.php\",\n        \"wp-content/uploads/suspicious-file2.php\"\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/scans/{{domain}}/quarantine/batch",
+              "host": ["{{base_url}}"],
+              "path": ["scans", "{{domain}}", "quarantine", "batch"]
+            },
+            "description": "Perform a batch operation (quarantine or delete) on multiple files at once."
           }
         }
       ]
@@ -196,6 +332,11 @@
     {
       "key": "domain",
       "value": "example.com",
+      "type": "string"
+    },
+    {
+      "key": "scan_id",
+      "value": "12345",
       "type": "string"
     }
   ]

@@ -1,21 +1,29 @@
 import { Router } from 'express';
 import sitesRouter from './sites';
 import scansRouter from './scans';
-import webhooksRouter from './webhooks';
 import firewallRouter from './firewall';
-import whitelistsRouter from './whitelists';
 import backupsRouter from './backups';
-import webhookSecretsRouter from './webhook-secrets';
+import whitelistsRouter from './whitelists';
+import webhooksRouter from './webhooks';
+import { verifyWebhook } from '../middleware/verify-webhook';
 
 const router = Router();
 
-// Mount routes
-router.use('/sites', sitesRouter);
-router.use('/scans', scansRouter);
-router.use('/firewall', firewallRouter);
-router.use('/backups', backupsRouter);
-router.use('/webhook-secrets', webhookSecretsRouter);
+// Use HMAC verification for all routes except webhooks
+const apiSecret = process.env.WEBHOOK_SECRET_KEY || '';
+router.use((req, res, next) => {
+  if (!req.path.startsWith('/webhook')) {
+    return verifyWebhook(apiSecret)(req, res, next);
+  }
+  next();
+});
+
+// Mount route modules
+router.use('/', sitesRouter);
+router.use('/', scansRouter);
+router.use('/', firewallRouter);
+router.use('/', backupsRouter);
 router.use('/whitelist', whitelistsRouter);
-router.use('/webhooks', webhooksRouter);
+router.use('/webhook', webhooksRouter);
 
 export default router;

@@ -1,6 +1,17 @@
 import Redis from 'ioredis';
 import { logger } from '../services/logger';
 
+// Log Redis connection details before connecting
+logger.info({
+  message: 'Connecting to Redis server',
+  host: process.env.REDIS_SERVER?.split(':')[0],
+  port: process.env.REDIS_SERVER?.split(':')[1] || '6379',
+  username: process.env.REDIS_USERNAME ? '***' : undefined // Don't log the actual username
+}, {
+  component: 'redis',
+  event: 'connection_init'
+});
+
 const redis = new Redis({
   host: process.env.REDIS_SERVER?.split(':')[0],
   port: parseInt(process.env.REDIS_SERVER?.split(':')[1] || '6379'),

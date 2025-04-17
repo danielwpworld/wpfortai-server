@@ -301,6 +301,13 @@ router.post('/scan-complete', async (req, res) => {
     // Create WPSec API instance
     const api = new WPSecAPI(scanData.domain);
 
+    // Update scan status in Redis to completed
+    await ScanStore.updateScanStatus(scan_id, {
+      ...scanData,
+      status: 'completed',
+      completed_at: new Date().toISOString()
+    });
+
     // Fetch scan results
     let results;
     try {

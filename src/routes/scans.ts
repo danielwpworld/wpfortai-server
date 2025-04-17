@@ -385,4 +385,54 @@ router.post('/:domain/quarantine/batch', async (req, res) => {
   }
 });
 
+// Delete a single file
+router.post('/:domain/delete', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const { file_path, scan_finding_id } = req.body;
+
+    if (!file_path) {
+      return res.status(400).json({ error: 'file_path is required' });
+    }
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+
+    // Delete file
+    logger.debug({
+      message: 'Deleting file',
+      domain,
+      filePath: file_path,
+      scanFindingId: scan_finding_id
+    }, {
+      component: 'scan-controller',
+      event: 'delete_file'
+    });
+
+    const result = await api.deleteFile(file_path, scan_finding_id);
+
+    logger.info({
+      message: 'File deleted successfully',
+      domain,
+      filePath: file_path,
+      scanFindingId: scan_finding_id
+    }, {
+      component: 'scan-controller',
+      event: 'file_deleted'
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error deleting file:', error);
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

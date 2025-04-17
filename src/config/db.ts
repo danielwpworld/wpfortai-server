@@ -389,16 +389,15 @@ export async function moveQuarantinedToDeleted(quarantineId: string) {
       // Create a record in deleted_detections
       const insertQuery = `
         INSERT INTO deleted_detections (
-          scan_detection_id, file_path, timestamp, scan_finding_id
-        ) VALUES ($1, $2, $3, $4)
+          scan_detection_id, file_path, timestamp
+        ) VALUES ($1, $2, $3)
         RETURNING id
       `;
       
       const insertValues = [
         quarantinedDetection.scan_detection_id,
         quarantinedDetection.original_path,
-        new Date(),
-        quarantinedDetection.scan_finding_id
+        new Date()
       ];
       
       const insertResult = await client.query(insertQuery, insertValues);

@@ -245,12 +245,11 @@ export class WPSecAPI {
   }
 
   // Delete a single file
-  async deleteFile(filePath: string, scanFindingId?: string): Promise<{ success: boolean }> {
+  async deleteFile(filePath: string): Promise<{ success: boolean }> {
     return this.request<{ success: boolean }>('delete', {
       method: 'POST',
       body: { 
-        file_path: filePath,
-        scan_finding_id: scanFindingId
+        file_path: filePath
       }
     });
   }

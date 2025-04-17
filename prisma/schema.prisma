@@ -157,7 +157,6 @@ model DeletedDetection {
   scanDetectionId Int?           @map("scan_detection_id")
   filePath        String         @map("file_path") @db.Text
   timestamp       DateTime       @db.Timestamp
-  scanFindingId   String?        @map("scan_finding_id") @db.VarChar
   createdAt       DateTime?      @default(now()) @map("created_at") @db.Timestamp
   scanDetection   ScanDetection? @relation(fields: [scanDetectionId], references: [id])
 

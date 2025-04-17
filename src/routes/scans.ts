@@ -724,16 +724,15 @@ router.post('/:domain/batch-operation', async (req, res) => {
           if (filePath) {
             const insertQuery = `
               INSERT INTO deleted_detections (
-                scan_detection_id, file_path, timestamp, scan_finding_id
-              ) VALUES ($1, $2, $3, $4)
+                scan_detection_id, file_path, timestamp
+              ) VALUES ($1, $2, $3)
               RETURNING id
             `;
             
             const insertValues = [
               scanDetectionId,
               filePath,
-              new Date(),
-              null // No scan_finding_id in this context
+              new Date()
             ];
             
             const insertResult = await pool.query(insertQuery, insertValues);
@@ -796,7 +795,7 @@ router.post('/:domain/batch-operation', async (req, res) => {
 router.post('/:domain/delete', async (req, res) => {
   try {
     const { domain } = req.params;
-    const { file_path, scan_detection_id, scan_finding_id, quarantine_id } = req.body;
+    const { file_path, scan_detection_id, quarantine_id } = req.body;
 
     if (!file_path) {
       return res.status(400).json({ error: 'file_path is required' });
@@ -817,7 +816,6 @@ router.post('/:domain/delete', async (req, res) => {
       domain,
       filePath: file_path,
       scanDetectionId: scan_detection_id,
-      scanFindingId: scan_finding_id,
       quarantineId: quarantine_id
     }, {
       component: 'scan-controller',
@@ -842,7 +840,7 @@ router.post('/:domain/delete', async (req, res) => {
         });
 
         // Still call the WPSec API to ensure the file is actually deleted
-        const result = await api.deleteFile(file_path, scan_finding_id);
+        const result = await api.deleteFile(file_path);
 
         logger.info({
           message: 'Quarantined file deleted successfully',
@@ -874,12 +872,12 @@ router.post('/:domain/delete', async (req, res) => {
         });
 
         // Continue with the delete operation even if the database update fails
-        const result = await api.deleteFile(file_path, scan_finding_id);
+        const result = await api.deleteFile(file_path);
         res.json(result);
       }
     } else {
       // Regular file delete (not quarantined)
-      const result = await api.deleteFile(file_path, scan_finding_id);
+      const result = await api.deleteFile(file_path);
 
       // If we have a scan_detection_id, update its status to 'deleted'
       if (scan_detection_id) {
@@ -889,16 +887,15 @@ router.post('/:domain/delete', async (req, res) => {
           // Create a record in deleted_detections
           const insertQuery = `
             INSERT INTO deleted_detections (
-              scan_detection_id, file_path, timestamp, scan_finding_id
-            ) VALUES ($1, $2, $3, $4)
+              scan_detection_id, file_path, timestamp
+            ) VALUES ($1, $2, $3)
             RETURNING id
           `;
           
           const insertValues = [
             scan_detection_id,
             file_path,
-            new Date(),
-            scan_finding_id || null
+            new Date()
           ];
           
           const insertResult = await pool.query(insertQuery, insertValues);
@@ -931,8 +928,7 @@ router.post('/:domain/delete', async (req, res) => {
         message: 'File deleted successfully',
         domain,
         filePath: file_path,
-        scanDetectionId: scan_detection_id,
-        scanFindingId: scan_finding_id
+        scanDetectionId: scan_detection_id
       }, {
         component: 'scan-controller',
         event: 'file_deleted'

@@ -13,12 +13,12 @@ const router = Router();
 // Webhook routes will be skipped as handled in the middleware itself
 router.use(verifyToken);
 
-// Mount route modules
-router.use('/', sitesRouter);
-router.use('/', scansRouter);
-router.use('/', firewallRouter);
-router.use('/', backupsRouter);
+// Mount route modules with clear path prefixes
+router.use('/sites', sitesRouter);
+router.use('/scans', scansRouter);
+router.use('/firewall', firewallRouter);
+router.use('/backups', backupsRouter);
 router.use('/whitelist', whitelistsRouter);
-router.use('/webhook', webhooksRouter);
+router.use('/webhooks', webhooksRouter);
 
 export default router;

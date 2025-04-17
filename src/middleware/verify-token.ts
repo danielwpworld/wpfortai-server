@@ -4,8 +4,26 @@ import { logger } from '../services/logger';
 export const verifyToken = (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers['x-wpfort-token'];
 
+  // Debug log for all requests
+  logger.debug({
+    message: 'Token verification middleware called',
+    path: req.path,
+    method: req.method,
+    hasToken: !!token
+  }, {
+    component: 'auth-middleware',
+    event: 'verify_token_called'
+  });
+
   // Skip token verification for webhook routes as they use their own auth
-  if (req.path.startsWith('/webhooks')) {
+  if (req.path.includes('/webhook')) {
+    logger.debug({
+      message: 'Skipping token verification for webhook route',
+      path: req.path
+    }, {
+      component: 'auth-middleware',
+      event: 'webhook_skip'
+    });
     return next();
   }
 

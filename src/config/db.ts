@@ -167,31 +167,42 @@ export async function createScanDetection(websiteId: string | number, scanId: st
   risk_level: string;
 }) {
   try {
-    const query = `
-      INSERT INTO scan_detections (
-        website_id, scan_id, file_path, threat_score, confidence, detection_type, 
-        severity, description, file_hash, file_size, context_type, risk_level
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING id
-    `;
-
-    const values = [
-      websiteId,
-      scanId,
+    // Convert websiteId to string if it's a number
+    const websiteIdStr = typeof websiteId === 'number' ? String(websiteId) : websiteId;
+    
+    // Use the new versioning logic to handle scan detections
+    const result = await handleScanDetectionVersioning(
       detection.file_path,
-      detection.threat_score,
-      detection.confidence,
-      detection.detection_type,
-      detection.severity,
-      detection.description,
-      detection.file_hash || null,
-      detection.file_size,
-      detection.context_type,
-      detection.risk_level
-    ];
-
-    const result = await pool.query(query, values);
-    return result.rows[0];
+      websiteIdStr,
+      scanId,
+      {
+        threatScore: detection.threat_score,
+        confidence: detection.confidence,
+        detectionType: detection.detection_type,
+        severity: detection.severity,
+        description: detection.description,
+        fileHash: detection.file_hash,
+        fileSize: detection.file_size,
+        contextType: detection.context_type,
+        riskLevel: detection.risk_level
+      }
+    );
+    
+    // Log reinfection events (when version > 1 and it's a new detection)
+    if (result.isNew && result.versionNumber > 1) {
+      logger.warn({
+        message: 'Reinfection detected',
+        filePath: detection.file_path,
+        versionNumber: result.versionNumber,
+        scanId,
+        websiteId: websiteIdStr
+      }, {
+        component: 'database',
+        event: 'reinfection_detected'
+      });
+    }
+    
+    return { id: result.scanDetectionId };
   } catch (error) {
     // Ensure error is always an Error object
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
@@ -448,6 +459,172 @@ export async function moveQuarantinedToDeleted(quarantineId: string) {
     }, {
       component: 'database',
       event: 'move_quarantined_to_deleted_error'
+    });
+    throw err;
+  }
+}
+
+/**
+ * Handle scan detection versioning logic
+ * 
+ * This function implements the versioning logic for scan detections:
+ * 1. If a file is detected and an active entry already exists, update the existing entry
+ * 2. If a file was previously quarantined/deleted and reappears, create a new entry with incremented version
+ * 3. If it's a new detection, create a new entry with version 1
+ * 
+ * @param filePath The path of the detected file
+ * @param websiteId The website ID
+ * @param scanId The scan ID
+ * @param detectionData Additional detection data
+ * @returns The scan detection ID and whether it's a new detection or update
+ */
+export async function handleScanDetectionVersioning(
+  filePath: string,
+  websiteId: string,
+  scanId: string,
+  detectionData: any
+): Promise<{ scanDetectionId: number; isNew: boolean; versionNumber: number }> {
+  try {
+    // Check if there's an existing detection for this file path
+    const query = `
+      SELECT id, status, version_number 
+      FROM scan_detections 
+      WHERE file_path = $1 AND website_id = $2
+      ORDER BY version_number DESC
+    `;
+    
+    const result = await pool.query(query, [filePath, websiteId]);
+    
+    // Case 1: No existing detections - create new with version 1
+    if (result.rows.length === 0) {
+      const insertQuery = `
+        INSERT INTO scan_detections (
+          website_id, scan_id, file_path, threat_score, confidence, 
+          detection_type, severity, description, file_hash, file_size, 
+          context_type, risk_level, status, version_number
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active', 1
+        )
+        RETURNING id, version_number
+      `;
+      
+      const insertValues = [
+        websiteId,
+        scanId,
+        filePath,
+        detectionData.threatScore || 0,
+        detectionData.confidence || 0,
+        detectionData.detectionType || 'unknown',
+        detectionData.severity || 'low',
+        detectionData.description || '',
+        detectionData.fileHash || null,
+        detectionData.fileSize || 0,
+        detectionData.contextType || 'unknown',
+        detectionData.riskLevel || 'low'
+      ];
+      
+      const insertResult = await pool.query(insertQuery, insertValues);
+      
+      return {
+        scanDetectionId: insertResult.rows[0].id,
+        isNew: true,
+        versionNumber: 1
+      };
+    }
+    
+    // Case 2: Has active detection - update it
+    const activeDetection = result.rows.find(d => d.status === 'active');
+    if (activeDetection) {
+      const updateQuery = `
+        UPDATE scan_detections
+        SET scan_id = $1,
+            threat_score = $2,
+            confidence = $3,
+            detection_type = $4,
+            severity = $5,
+            description = $6,
+            file_hash = $7,
+            file_size = $8,
+            context_type = $9,
+            risk_level = $10
+        WHERE id = $11
+        RETURNING id, version_number
+      `;
+      
+      const updateValues = [
+        scanId,
+        detectionData.threatScore || 0,
+        detectionData.confidence || 0,
+        detectionData.detectionType || 'unknown',
+        detectionData.severity || 'low',
+        detectionData.description || '',
+        detectionData.fileHash || null,
+        detectionData.fileSize || 0,
+        detectionData.contextType || 'unknown',
+        detectionData.riskLevel || 'low',
+        activeDetection.id
+      ];
+      
+      const updateResult = await pool.query(updateQuery, updateValues);
+      
+      return {
+        scanDetectionId: updateResult.rows[0].id,
+        isNew: false,
+        versionNumber: updateResult.rows[0].version_number
+      };
+    }
+    
+    // Case 3: Only has quarantined/deleted detections - create new with incremented version
+    // This indicates reinfection
+    const highestVersion = Math.max(...result.rows.map(d => d.version_number));
+    const newVersionNumber = highestVersion + 1;
+    
+    const reinfectionQuery = `
+      INSERT INTO scan_detections (
+        website_id, scan_id, file_path, threat_score, confidence, 
+        detection_type, severity, description, file_hash, file_size, 
+        context_type, risk_level, status, version_number
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active', $13
+      )
+      RETURNING id, version_number
+    `;
+    
+    const reinfectionValues = [
+      websiteId,
+      scanId,
+      filePath,
+      detectionData.threatScore || 0,
+      detectionData.confidence || 0,
+      detectionData.detectionType || 'unknown',
+      detectionData.severity || 'low',
+      detectionData.description || '',
+      detectionData.fileHash || null,
+      detectionData.fileSize || 0,
+      detectionData.contextType || 'unknown',
+      detectionData.riskLevel || 'low',
+      newVersionNumber
+    ];
+    
+    const reinfectionResult = await pool.query(reinfectionQuery, reinfectionValues);
+    
+    return {
+      scanDetectionId: reinfectionResult.rows[0].id,
+      isNew: true,
+      versionNumber: newVersionNumber
+    };
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error handling scan detection versioning',
+      error: err,
+      filePath,
+      websiteId,
+      scanId
+    }, {
+      component: 'database',
+      event: 'handle_scan_detection_versioning_error'
     });
     throw err;
   }

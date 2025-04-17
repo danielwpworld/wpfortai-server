@@ -106,6 +106,7 @@ model ScanDetection {
   fileSize      Int                    @map("file_size")
   contextType   String                 @map("context_type") @db.VarChar
   riskLevel     String                 @map("risk_level") @db.VarChar
+  versionNumber Int                    @default(1) @map("version_number")
   createdAt     DateTime?              @default(now()) @map("created_at") @db.Timestamptz
   status        String?                @default("active") @db.VarChar
   website       Website                @relation(fields: [websiteId], references: [id])

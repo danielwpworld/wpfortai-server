@@ -63,7 +63,7 @@ export class ScanStore {
       total_files: status.total_files,
       completed_at: status.completed_at,
       duration: status.duration,
-      results_endpoint: status.results_endpoint
+      results_endpoint: '/results' // Always use the correct endpoint
     };
 
     await redis.setex(key, this.SCAN_TTL, JSON.stringify(updatedData));

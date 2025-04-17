@@ -4,7 +4,9 @@ echo "Stopping WPFort server..."
 sudo systemctl stop wpfort
 
 echo "Pulling latest changes..."
-cd /wpfort-server && git pull origin main
+cd /wpfort-server && git fetch origin
+echo "Resetting to origin/main (will overwrite local changes)..."
+git reset --hard origin/main
 
 echo "Installing dependencies..."
 npm install

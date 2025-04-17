@@ -5,18 +5,13 @@ import firewallRouter from './firewall';
 import backupsRouter from './backups';
 import whitelistsRouter from './whitelists';
 import webhooksRouter from './webhooks';
-import { verifyWebhook } from '../middleware/verify-webhook';
+import { verifyToken } from '../middleware/verify-token';
 
 const router = Router();
 
-// Use HMAC verification for all routes except webhooks
-const apiSecret = process.env.WEBHOOK_SECRET_KEY || '';
-router.use((req, res, next) => {
-  if (!req.path.startsWith('/webhook')) {
-    return verifyWebhook(apiSecret)(req, res, next);
-  }
-  next();
-});
+// Apply token verification middleware to all routes
+// Webhook routes will be skipped as handled in the middleware itself
+router.use(verifyToken);
 
 // Mount route modules
 router.use('/', sitesRouter);

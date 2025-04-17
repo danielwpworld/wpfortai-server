@@ -9,12 +9,47 @@ import router from './routes';
 // Load environment variables
 config({ path: '.env.local' });
 
+// Required environment variables
+const requiredEnvVars = [
+  'REDIS_SERVER',
+  'REDIS_USERNAME',
+  'REDIS_PASSWORD',
+  'WPFORT_API_KEY',
+  'WPFORT_SERVER_API_KEY',
+  'DATABASE_URL',
+  'NODE_ENV',
+  'LOG_LEVEL',
+  'GRAFANA_LOKI_HOST',
+  'GRAFANA_LOKI_USER',
+  'GRAFANA_LOKI_TOKEN',
+  'PORT'
+];
+
+// Check for missing environment variables
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+// If any required environment variables are missing, log an error and exit
+if (missingEnvVars.length > 0) {
+  logger.error({
+    message: 'Missing required environment variables',
+    missingVariables: missingEnvVars
+  }, {
+    component: 'server',
+    event: 'startup_error'
+  });
+  
+  console.error('\n❌ ERROR: Missing required environment variables:');
+  missingEnvVars.forEach(envVar => console.error(`  - ${envVar}`));
+  console.error('\nPlease set these variables in your .env.local file or environment and restart the server.\n');
+  
+  process.exit(1);
+}
+
 // Log startup information
 logger.info({
   message: 'Starting WPFort AI server',
   nodeEnv: process.env.NODE_ENV,
-  databaseConfigured: !!process.env.DATABASE_URL,
-  apiKeyConfigured: !!process.env.WPFORT_API_KEY
+  environmentVariablesVerified: true
 }, {
   component: 'server',
   event: 'startup'

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
 import type { ScanStartResponse, ScanStatus, ScanResults, QuarantineResponse, QuarantineListResponse, QuarantineRestoreResponse, BatchOperationResponse } from '../types/wpsec';
-import { getWebsiteByDomain } from '../config/db';
+import { getWebsiteByDomain, createWebsiteScanResult } from '../config/db';
 import { logger } from '../services/logger';
 
 const router = Router();
@@ -62,6 +62,40 @@ router.post('/:domain/start', async (req, res) => {
     });
 
     const scanData = await api.startScan();
+    
+    // Create initial scan record in database
+    try {
+      await createWebsiteScanResult(website.id, {
+        scan_id: scanData.scan_id,
+        infected_files: 0,
+        total_files: 0,
+        started_at: new Date(scanData.started_at),
+        completed_at: new Date(0), // Will be updated when scan completes
+        duration: 0,
+        status: 'pending'
+      });
+
+      logger.info({
+        message: 'Initial scan record created in database',
+        domain,
+        scanId: scanData.scan_id,
+        websiteId: website.id
+      }, {
+        component: 'scan-controller',
+        event: 'scan_record_created'
+      });
+    } catch (dbError) {
+      logger.error({
+        message: 'Failed to create initial scan record',
+        error: dbError instanceof Error ? dbError : new Error('Unknown database error'),
+        domain,
+        scanId: scanData.scan_id
+      }, {
+        component: 'scan-controller',
+        event: 'scan_record_error'
+      });
+      // Continue even if database insert fails
+    }
     
     logger.info({
       message: 'Scan started successfully',

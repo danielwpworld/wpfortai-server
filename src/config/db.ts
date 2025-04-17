@@ -99,7 +99,7 @@ export async function createWebsiteScanResult(websiteId: number, scanData: {
   started_at: Date;
   completed_at: Date;
   duration: number;
-  status?: 'completed' | 'failed';
+  status?: 'pending' | 'completed' | 'failed';
   error_message?: string;
 }) {
   try {

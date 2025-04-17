@@ -92,7 +92,7 @@ export async function getWebsiteByDomain(domain: string): Promise<Website | null
   }
 }
 
-export async function createWebsiteScanResult(websiteId: number, scanData: {
+export async function createWebsiteScanResult(websiteId: string | number, scanData: {
   scan_id: string;
   infected_files: number;
   total_files: number;
@@ -154,7 +154,7 @@ export async function createWebsiteScanResult(websiteId: number, scanData: {
   }
 }
 
-export async function createScanDetection(websiteId: number, scanId: string, detection: {
+export async function createScanDetection(websiteId: string | number, scanId: string, detection: {
   file_path: string;
   threat_score: number;
   confidence: number;

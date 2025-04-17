@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "WPFort API",
-    "description": "# WPFort API Collection\n\nThis collection contains all endpoints for the WPFort API, including webhooks.\n\n## Webhook Security\nAll webhooks require HMAC signature verification. Each request must include:\n- `x-wpfort-signature`: HMAC SHA256 signature\n- `x-wpfort-timestamp`: Current Unix timestamp in seconds\n\n### Signature Generation\n1. Get your webhook secret using the `/webhook-secrets/{domain}/webhook-secret` endpoint\n2. Create signature data: `timestamp + '.' + JSON.stringify(payload)`\n3. Generate HMAC: `hmac_sha256(signatureData, webhookSecret)`",
+    "description": "# WPFort API Collection\n\nThis collection contains all endpoints for the WPFort API, including webhooks.\n\n## API Authentication\nAll API endpoints (except webhooks) require authentication using an API token.\nAdd the following header to all requests:\n- `x-wpfort-token`: Your API token (stored in the `wpfort_server_api_key` environment variable)\n\n## Webhook Security\nAll webhooks require HMAC signature verification. Each request must include:\n- `x-wpfort-signature`: HMAC SHA256 signature\n- `x-wpfort-timestamp`: Current Unix timestamp in seconds\n\n### Signature Generation\n1. Get your webhook secret using the `/webhook-secrets/{domain}/webhook-secret` endpoint\n2. Create signature data: `timestamp + '.' + JSON.stringify(payload)`\n3. Generate HMAC: `hmac_sha256(signatureData, webhookSecret)`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -12,7 +12,13 @@
           "name": "Generate Webhook Secret",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/webhook-secrets/{{domain}}/webhook-secret",
               "host": ["{{base_url}}"],
@@ -25,7 +31,13 @@
           "name": "Delete Webhook Secret",
           "request": {
             "method": "DELETE",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/webhook-secrets/{{domain}}/webhook-secret",
               "host": ["{{base_url}}"],
@@ -43,7 +55,13 @@
           "name": "Start Scan",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/scans/{{domain}}/start",
               "host": ["{{base_url}}"],
@@ -56,7 +74,13 @@
           "name": "Get Scan Status",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/scans/{{domain}}/status/{{scan_id}}",
               "host": ["{{base_url}}"],
@@ -69,7 +93,13 @@
           "name": "Get Scan Results",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/scans/{{domain}}/results/{{scan_id}}",
               "host": ["{{base_url}}"],
@@ -82,7 +112,13 @@
           "name": "Get Active Scan",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/scans/{{domain}}/active",
               "host": ["{{base_url}}"],
@@ -95,7 +131,13 @@
           "name": "Quarantine File",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n    \"file_path\": \"wp-content/uploads/suspicious-file.php\"\n}",
@@ -117,7 +159,13 @@
           "name": "Get Quarantined Files",
           "request": {
             "method": "GET",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "url": {
               "raw": "{{base_url}}/scans/{{domain}}/quarantine",
               "host": ["{{base_url}}"],
@@ -130,7 +178,13 @@
           "name": "Restore Quarantined File",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n    \"quarantine_id\": \"q12345\"\n}",
@@ -152,7 +206,13 @@
           "name": "Batch Quarantine/Delete Files",
           "request": {
             "method": "POST",
-            "header": [],
+            "header": [
+              {
+                "key": "x-wpfort-token",
+                "value": "{{wpfort_server_api_key}}",
+                "type": "text"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n    \"operation\": \"quarantine\",\n    \"files\": [\n        \"wp-content/uploads/suspicious-file1.php\",\n        \"wp-content/uploads/suspicious-file2.php\"\n    ]\n}",
@@ -337,6 +397,11 @@
     {
       "key": "scan_id",
       "value": "12345",
+      "type": "string"
+    },
+    {
+      "key": "wpfort_server_api_key",
+      "value": "your-api-key-here",
       "type": "string"
     }
   ]

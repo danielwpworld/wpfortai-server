@@ -5,6 +5,7 @@ import firewallRouter from './firewall';
 import backupsRouter from './backups';
 import whitelistsRouter from './whitelists';
 import webhooksRouter from './webhooks';
+import webhookSecretsRouter from './webhook-secrets';
 import { verifyToken } from '../middleware/verify-token';
 
 const router = Router();
@@ -20,5 +21,6 @@ router.use('/firewall', firewallRouter);
 router.use('/backups', backupsRouter);
 router.use('/whitelist', whitelistsRouter);
 router.use('/webhooks', webhooksRouter);
+router.use('/webhook-secrets', webhookSecretsRouter);
 
 export default router;

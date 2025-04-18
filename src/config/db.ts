@@ -630,4 +630,94 @@ export async function handleScanDetectionVersioning(
   }
 }
 
+export async function updateWebsiteScanResult(websiteId: string | number, scanId: string, scanData: {
+  infected_files: number;
+  total_files: number;
+  completed_at: Date;
+  duration: number;
+  status?: 'pending' | 'completed' | 'failed';
+  error_message?: string;
+}) {
+  try {
+    logger.debug({
+      message: 'Updating website scan result',
+      websiteId,
+      scanId,
+      status: scanData.status
+    }, {
+      component: 'database',
+      event: 'update_scan_result'
+    });
+
+    const result = await pool.query(
+      `UPDATE website_scans 
+       SET infected_files_count = $1, 
+           total_files_count = $2,
+           completed_at = $3, 
+           duration_seconds = $4, 
+           status = $5, 
+           error_message = $6
+       WHERE website_id = $7 AND scan_id = $8
+       RETURNING id`,
+      [
+        scanData.infected_files,
+        scanData.total_files,
+        scanData.completed_at,
+        scanData.duration,
+        scanData.status || 'completed',
+        scanData.error_message,
+        websiteId,
+        scanId
+      ]
+    );
+
+    if (result.rowCount === 0) {
+      // If no rows were updated, the scan record doesn't exist, so create it
+      logger.info({
+        message: 'No existing scan record found, creating new one',
+        websiteId,
+        scanId
+      }, {
+        component: 'database',
+        event: 'scan_result_create_fallback'
+      });
+
+      // Fallback to creating a new record if update didn't affect any rows
+      await createWebsiteScanResult(websiteId, {
+        scan_id: scanId,
+        infected_files: scanData.infected_files,
+        total_files: scanData.total_files,
+        // Since we don't have started_at in the update data, use completed_at minus duration
+        started_at: new Date(scanData.completed_at.getTime() - (scanData.duration * 1000)),
+        completed_at: scanData.completed_at,
+        duration: scanData.duration,
+        status: scanData.status,
+        error_message: scanData.error_message
+      });
+      return;
+    }
+
+    logger.info({
+      message: 'Website scan result updated',
+      websiteId,
+      scanId,
+      status: scanData.status || 'completed'
+    }, {
+      component: 'database',
+      event: 'scan_result_updated'
+    });
+  } catch (error: any) {
+    logger.error({
+      message: 'Error updating website scan result',
+      error,
+      websiteId,
+      scanId
+    }, {
+      component: 'database',
+      event: 'update_scan_result_error'
+    });
+    throw error;
+  }
+}
+
 export default pool;

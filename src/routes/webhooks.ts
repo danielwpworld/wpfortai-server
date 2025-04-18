@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { ScanStore } from '../services/scan-store';
 import { WPSecAPI } from '../services/wpsec';
 import type { ScanResults } from '../types/wpsec';
-import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection } from '../config/db';
+import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection, updateWebsiteScanResult } from '../config/db';
 import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
 import { logger } from '../services/logger';
@@ -313,12 +313,10 @@ router.post('/scan-complete', async (req, res) => {
     try {
       results = await api.getScanResults(scan_id);
       
-      // Store scan results in database with data from WPSec API
-      await createWebsiteScanResult(website.id, {
-        scan_id,
+      // Update scan results in database with data from WPSec API
+      await updateWebsiteScanResult(website.id, scan_id, {
         infected_files: parseInt(results.infected_count) || 0,
         total_files: parseInt(results.total_files_scanned) || 0,
-        started_at: new Date(results.started_at || scanData.started_at),
         completed_at: new Date(results.completed_at || Date.now()),
         duration: parseInt(results.duration) || 0,
         status: 'completed'
@@ -331,12 +329,10 @@ router.post('/scan-complete', async (req, res) => {
         domain: scanData.domain
       });
       
-      // Store basic scan results using data from Redis
-      await createWebsiteScanResult(website.id, {
-        scan_id,
+      // Update basic scan results using data from Redis
+      await updateWebsiteScanResult(website.id, scan_id, {
         infected_files: 0,
         total_files: parseInt(scanData.total_files || '0'),
-        started_at: new Date(scanData.started_at),
         completed_at: new Date(),
         duration: 0,
         status: 'completed'

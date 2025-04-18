@@ -470,7 +470,8 @@ export async function moveQuarantinedToDeleted(quarantineId: string) {
  * This function implements the versioning logic for scan detections:
  * 1. If a file is detected and an active entry already exists, update the existing entry
  * 2. If a file was previously quarantined/deleted and reappears, create a new entry with incremented version
- * 3. If it's a new detection, create a new entry with version 1
+ * 3. If a similar file (based on name, size, hash) was detected elsewhere, treat as reinfection
+ * 4. If it's a new detection, create a new entry with version 1
  * 
  * @param filePath The path of the detected file
  * @param websiteId The website ID
@@ -485,15 +486,83 @@ export async function handleScanDetectionVersioning(
   detectionData: any
 ): Promise<{ scanDetectionId: number; isNew: boolean; versionNumber: number }> {
   try {
-    // Check if there's an existing detection for this file path
-    const query = `
-      SELECT id, status, version_number 
+    // Extract filename from path
+    const fileName = filePath.split('/').pop() || '';
+    const fileSize = detectionData.fileSize || 0;
+    const fileHash = detectionData.fileHash || null;
+    
+    // First check: Exact path match
+    const exactPathQuery = `
+      SELECT id, status, version_number, file_path, file_hash, file_size 
       FROM scan_detections 
       WHERE file_path = $1 AND website_id = $2
       ORDER BY version_number DESC
     `;
     
-    const result = await pool.query(query, [filePath, websiteId]);
+    const exactResult = await pool.query(exactPathQuery, [filePath, websiteId]);
+    
+    // If no exact path match, check for similar files (potential reinfections)
+    let similarResult = { rows: [] };
+    
+    if (exactResult.rows.length === 0) {
+      // Build query conditions based on available data
+      let conditions = [];
+      let params = [websiteId];
+      let paramIndex = 2; // Starting from $2
+      
+      // Always include website_id
+      conditions.push(`website_id = $1`);
+      
+      // Add filename condition if available
+      if (fileName) {
+        conditions.push(`file_path LIKE $${paramIndex}`);
+        params.push(`%${fileName}`);
+        paramIndex++;
+      }
+      
+      // Add file hash condition if available
+      if (fileHash) {
+        conditions.push(`file_hash = $${paramIndex}`);
+        params.push(fileHash);
+        paramIndex++;
+      }
+      
+      // Add file size condition if available
+      if (fileSize > 0) {
+        conditions.push(`file_size = $${paramIndex}`);
+        params.push(fileSize);
+        paramIndex++;
+      }
+      
+      // Only proceed with similarity check if we have at least 2 conditions beyond website_id
+      if (conditions.length > 1) {
+        const similarityQuery = `
+          SELECT id, status, version_number, file_path, file_hash, file_size 
+          FROM scan_detections 
+          WHERE ${conditions.join(' AND ')}
+          ORDER BY version_number DESC
+        `;
+        
+        similarResult = await pool.query(similarityQuery, params);
+        
+        // Log the similarity check for debugging
+        logger.debug({
+          message: 'Checking for similar files',
+          filePath,
+          fileName,
+          fileSize,
+          fileHash: fileHash ? '(hash available)' : '(no hash)',
+          matchCount: similarResult.rows.length,
+          conditions: conditions.join(' AND ')
+        }, {
+          component: 'database',
+          event: 'similarity_check'
+        });
+      }
+    }
+    
+    // Combine results, prioritizing exact matches
+    const result = exactResult.rows.length > 0 ? exactResult : similarResult;
     
     // Case 1: No existing detections - create new with version 1
     if (result.rows.length === 0) {
@@ -574,10 +643,30 @@ export async function handleScanDetectionVersioning(
       };
     }
     
-    // Case 3: Only has quarantined/deleted detections - create new with incremented version
+    // Case 3: Only has quarantined/deleted detections or similar files found elsewhere - create new with incremented version
     // This indicates reinfection
     const highestVersion = Math.max(...result.rows.map(d => d.version_number));
     const newVersionNumber = highestVersion + 1;
+    
+    // Log reinfection details
+    const similarFilePath = result.rows[0]?.file_path;
+    if (similarFilePath && similarFilePath !== filePath) {
+      logger.info({
+        message: 'Reinfection detected with similar file',
+        originalPath: similarFilePath,
+        newPath: filePath,
+        websiteId,
+        versionNumber: newVersionNumber,
+        matchReasons: [
+          fileName ? 'filename' : null,
+          fileSize > 0 ? 'file_size' : null,
+          fileHash ? 'file_hash' : null
+        ].filter(Boolean).join(', ')
+      }, {
+        component: 'database',
+        event: 'reinfection_detected'
+      });
+    }
     
     const reinfectionQuery = `
       INSERT INTO scan_detections (

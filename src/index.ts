@@ -1,13 +1,16 @@
+// IMPORTANT: Load environment variables FIRST, before any other imports
+import { config } from 'dotenv';
+
+// Load environment variables synchronously before anything else happens
+config({ path: '.env.local' });
+
+// Now that environment variables are loaded, we can import other modules
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { Request, Response, NextFunction } from 'express';
-import { config } from 'dotenv';
 import { logger } from './services/logger';
 import router from './routes';
-
-// Load environment variables
-config({ path: '.env.local' });
 
 // Required environment variables
 const requiredEnvVars = [

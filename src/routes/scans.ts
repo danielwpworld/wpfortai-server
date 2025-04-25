@@ -180,101 +180,47 @@ router.get('/:domain/status/:scanId', async (req, res) => {
 
       return res.json(status);
     }
-
-    // If not in Redis, fall back to WPSec API
+      
+    // Modified: instead of WPSec API fallback, check database for scan status
     logger.debug({
-      message: 'Scan not found in Redis, falling back to WPSec API',
+      message: 'Scan not found in Redis, checking database',
       domain,
       scanId
     }, {
       component: 'scan-controller',
-      event: 'fetch_scan_status_wpsec_fallback'
+      event: 'fetch_scan_status_db'
     });
-
-    // Create WPSec API instance
-    const api = new WPSecAPI(domain);
-
-    logger.debug({
-      message: 'Fetching scan status from WPSec API',
-      domain,
-      scanId
-    }, {
-      component: 'scan-controller',
-      event: 'fetch_scan_status_wpsec'
-    });
-
-    try {
-      const status = await api.getScanStatus(scanId);
-
-      // Store the status in Redis for future requests
-      await ScanStore.updateScanStatus(scanId, status);
-
+    const query = `
+      SELECT status, started_at, completed_at, duration_seconds, infected_files_count, total_files_count, error_message
+      FROM website_scans
+      WHERE website_id = $1 AND scan_id = $2
+    `;
+    const dbResult = await pool.query(query, [website.id, scanId]);
+    if (dbResult.rows.length > 0) {
+      const dbScan = dbResult.rows[0];
+      const statusFromDb = {
+        status: dbScan.status,
+        progress: dbScan.status === 'completed' ? 100 : 0,
+        files_scanned: String(dbScan.infected_files_count || 0),
+        total_files: String(dbScan.total_files_count || 0),
+        completed_at: dbScan.completed_at?.toISOString(),
+        duration: dbScan.duration_seconds || 0,
+        error: dbScan.error_message
+      };
       logger.info({
-        message: 'Scan status retrieved from WPSec API',
+        message: 'Scan status retrieved from database',
         domain,
         scanId,
-        status: status.status,
-        progress: status.progress
+        status: statusFromDb.status
       }, {
         component: 'scan-controller',
-        event: 'scan_status_from_wpsec'
+        event: 'scan_status_from_db'
       });
-
-      res.json(status);
-    } catch (apiError) {
-      // If WPSec API fails, check if we have a record in the database
-      logger.warn({
-        message: 'Failed to get scan status from WPSec API, checking database',
-        domain,
-        scanId,
-        error: apiError instanceof Error ? apiError.message : 'Unknown error'
-      }, {
-        component: 'scan-controller',
-        event: 'wpsec_api_error_fallback_to_db'
-      });
-
-      // Query the database for the scan
-      const query = `
-        SELECT status, started_at, completed_at, duration_seconds, infected_files_count, total_files_count, error_message 
-        FROM website_scans 
-        WHERE website_id = $1 AND scan_id = $2
-      `;
-      
-      const dbResult = await pool.query(query, [website.id, scanId]);
-      
-      if (dbResult.rows.length > 0) {
-        const dbScan = dbResult.rows[0];
-        
-        // Format database result to match expected status response
-        const statusFromDb = {
-          status: dbScan.status,
-          progress: dbScan.status === 'completed' ? 100 : 0,
-          files_scanned: String(dbScan.infected_files_count || 0),
-          total_files: String(dbScan.total_files_count || 0),
-          completed_at: dbScan.completed_at?.toISOString(),
-          duration: dbScan.duration_seconds || 0,
-          error: dbScan.error_message
-        };
-        
-        logger.info({
-          message: 'Scan status retrieved from database',
-          domain,
-          scanId,
-          status: statusFromDb.status
-        }, {
-          component: 'scan-controller',
-          event: 'scan_status_from_db'
-        });
-        
-        // Also store this in Redis for future requests
-        await ScanStore.updateScanStatus(scanId, statusFromDb);
-        
-        return res.json(statusFromDb);
-      }
-      
-      // If we got here, we couldn't find the scan status anywhere
-      throw apiError;
+      // Store in Redis for future requests
+      await ScanStore.updateScanStatus(scanId, statusFromDb);
+      return res.json(statusFromDb);
     }
+    return res.status(404).json({ error: 'Scan not found' });
   } catch (error) {
     console.error('Error getting scan status:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');

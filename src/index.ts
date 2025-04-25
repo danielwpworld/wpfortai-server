@@ -41,7 +41,7 @@ if (missingEnvVars.length > 0) {
     event: 'startup_error'
   });
   
-  console.error('\n❌ ERROR: Missing required environment variables:');
+  console.error('\n❌ ERROR: tsgasd Missing required environment variables:');
   missingEnvVars.forEach(envVar => console.error(`  - ${envVar}`));
   console.error('\nPlease set these variables in your .env.local file or environment and restart the server.\n');
   

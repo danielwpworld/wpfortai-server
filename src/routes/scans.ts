@@ -346,15 +346,29 @@ router.post('/:domain/quarantine', async (req, res) => {
 
     // Call the WPSec API to quarantine the file
     const result = await api.quarantineFile(file_path);
+    // Capture update status
+    let detectionUpdate: any = null;
 
     // Update the detection status in the database if scan_detection_id is provided
     if (scan_detection_id) {
+      // Ensure numeric ID and log before updating
+      const detectionId = typeof scan_detection_id === 'string'
+        ? parseInt(scan_detection_id, 10)
+        : scan_detection_id;
+      logger.debug({
+        message: 'Marking scan detection as quarantined',
+        scanDetectionId: detectionId
+      }, {
+        component: 'scan-controller',
+        event: 'pre_update_detection_status'
+      });
       try {
-        await updateScanDetectionStatus(scan_detection_id, 'quarantined');
+        const updated = await updateScanDetectionStatus(detectionId, 'quarantined');
+        detectionUpdate = updated;
         logger.debug({
           message: 'Updated scan detection status',
-          scanDetectionId: scan_detection_id,
-          status: 'quarantined'
+          scanDetectionId: updated.id ?? detectionId,
+          status: updated.status
         }, {
           component: 'scan-controller',
           event: 'update_detection_status'
@@ -364,8 +378,8 @@ router.post('/:domain/quarantine', async (req, res) => {
         const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
         logger.error({
           message: 'Failed to update scan detection status',
-          error: err, // Pass the Error object, not just the message
-          scanDetectionId: scan_detection_id
+          error: err, 
+          scanDetectionId: detectionId
         }, {
           component: 'scan-controller',
           event: 'update_detection_status_error'
@@ -401,7 +415,7 @@ router.post('/:domain/quarantine', async (req, res) => {
       const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
       logger.error({
         message: 'Failed to create quarantined detection record',
-        error: err, // Pass the Error object, not just the message
+        error: err, 
         quarantineId: result.quarantine_id,
         filePath: file_path
       }, {
@@ -420,7 +434,7 @@ router.post('/:domain/quarantine', async (req, res) => {
       event: 'file_quarantined'
     });
 
-    res.json(result);
+    res.json({ result, detectionUpdate });
   } catch (error) {
     console.error('Error quarantining file:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');
@@ -456,10 +470,14 @@ router.get('/:domain/quarantine', async (req, res) => {
 router.post('/:domain/quarantine/restore', async (req, res) => {
   try {
     const { domain } = req.params;
-    const { quarantine_id } = req.body;
-
-    if (!quarantine_id) {
-      return res.status(400).json({ error: 'quarantine_id is required' });
+    const { quarantine_id, quarantine_ids } = req.body;
+    const ids = Array.isArray(quarantine_ids)
+      ? quarantine_ids
+      : quarantine_id
+        ? [quarantine_id]
+        : [];
+    if (!ids.length) {
+      return res.status(400).json({ error: 'quarantine_id or quarantine_ids is required' });
     }
 
     // Check if website exists
@@ -474,70 +492,68 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
     logger.debug({
       message: 'Restoring file from quarantine',
       domain,
-      quarantineId: quarantine_id
+      quarantineIds: ids
     }, {
       component: 'scan-controller',
       event: 'restore_from_quarantine'
     });
 
-    // First, get the quarantined detection record and remove it
-    try {
-      const { deletedRecord, scanDetectionId } = await removeQuarantinedDetection(quarantine_id);
-      
-      // Update the scan detection status back to 'active'
-      if (scanDetectionId) {
-        try {
-          await updateScanDetectionStatus(scanDetectionId, 'active');
-          logger.debug({
-            message: 'Updated scan detection status',
-            scanDetectionId,
-            status: 'active'
-          }, {
-            component: 'scan-controller',
-            event: 'update_detection_status'
-          });
-        } catch (dbError) {
-          // Ensure dbError is always an Error object
-          const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
-          logger.error({
-            message: 'Failed to update scan detection status',
-            error: err, // Pass the Error object, not just the message
-            scanDetectionId
-          }, {
-            component: 'scan-controller',
-            event: 'update_detection_status_error'
-          });
+    // Remove quarantined detection records
+    for (const id of ids) {
+      try {
+        const { deletedRecord, scanDetectionId } = await removeQuarantinedDetection(id);
+        // Update the scan detection status back to 'active'
+        if (scanDetectionId) {
+          try {
+            await updateScanDetectionStatus(scanDetectionId, 'active');
+            logger.debug({
+              message: 'Updated scan detection status',
+              scanDetectionId,
+              status: 'active'
+            }, {
+              component: 'scan-controller',
+              event: 'update_detection_status'
+            });
+          } catch (dbError) {
+            const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
+            logger.error({
+              message: 'Failed to update scan detection status',
+              error: err,
+              scanDetectionId
+            }, {
+              component: 'scan-controller',
+              event: 'update_detection_status_error'
+            });
+          }
         }
+        logger.debug({
+          message: 'Removed quarantined detection record',
+          quarantineId: id,
+          originalPath: deletedRecord.original_path
+        }, {
+          component: 'scan-controller',
+          event: 'remove_quarantined_detection'
+        });
+      } catch (dbError) {
+        const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
+        logger.error({
+          message: 'Failed to remove quarantined detection record',
+          error: err,
+          quarantineId: id
+        }, {
+          component: 'scan-controller',
+          event: 'remove_quarantined_detection_error'
+        });
       }
-
-      logger.debug({
-        message: 'Removed quarantined detection record',
-        quarantineId: quarantine_id,
-        originalPath: deletedRecord.original_path
-      }, {
-        component: 'scan-controller',
-        event: 'remove_quarantined_detection'
-      });
-    } catch (dbError) {
-      // Ensure dbError is always an Error object
-      const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
-      logger.error({
-        message: 'Failed to remove quarantined detection record',
-        error: err, // Pass the Error object, not just the message
-        quarantineId: quarantine_id
-      }, {
-        component: 'scan-controller',
-        event: 'remove_quarantined_detection_error'
-      });
     }
 
-    // Now restore the file via the WPSec API
-    const result = await api.restoreQuarantinedFile(quarantine_id);
-    
+    // Now restore the file(s) via the WPSec API
+    const result = await api.restoreQuarantinedFile(ids);
+
     logger.info({
       message: 'File restored from quarantine successfully',
       domain,
-      quarantineId: quarantine_id
+      quarantineIds: ids
     }, {
       component: 'scan-controller',
       event: 'file_restored'
@@ -546,17 +562,16 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error restoring quarantined file:', error);
-    // Ensure error is always an Error object
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
     const domainParam = req.params.domain;
     logger.error({
-      message: 'Error restoring file from quarantine',
-      error: err, // Pass the Error object, not just the message
+      message: 'Error restoring quarantined file',
+      error: err,
       domain: domainParam,
-      quarantineId: req.body.quarantine_id
+      quarantineIds: req.body.quarantine_ids || req.body.quarantine_id
     }, {
       component: 'scan-controller',
-      event: 'restore_error'
+      event: 'restore_file_error'
     });
     res.status(500).json({ error: err.message });
   }
@@ -663,22 +678,32 @@ router.post('/:domain/batch-operation', async (req, res) => {
         if (scanDetectionId) {
           try {
             // Update scan detection status to quarantined
-            await updateScanDetectionStatus(scanDetectionId, 'quarantined');
+            const detectionId = typeof scanDetectionId === 'string'
+              ? parseInt(scanDetectionId, 10)
+              : scanDetectionId;
             logger.debug({
-              message: 'Updated scan detection status in batch operation',
-              scanDetectionId,
-              status: 'quarantined'
+              message: 'Marking scan detection as quarantined',
+              scanDetectionId: detectionId
             }, {
               component: 'scan-controller',
-              event: 'batch_update_detection_status'
+              event: 'pre_update_detection_status'
+            });
+            const updated = await updateScanDetectionStatus(detectionId, 'quarantined');
+            logger.debug({
+              message: 'Updated scan detection status',
+              scanDetectionId: updated.id ?? detectionId,
+              status: updated.status
+            }, {
+              component: 'scan-controller',
+              event: 'update_detection_status'
             });
           } catch (dbError) {
             // Ensure dbError is always an Error object
             const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
             logger.error({
               message: 'Failed to update scan detection status in batch operation',
-              error: err, // Pass the Error object, not just the message
-              scanDetectionId
+              error: err, 
+              scanDetectionId: scanDetectionId
             }, {
               component: 'scan-controller',
               event: 'batch_update_detection_status_error'
@@ -715,7 +740,7 @@ router.post('/:domain/batch-operation', async (req, res) => {
             const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
             logger.error({
               message: 'Failed to create quarantined detection record in batch operation',
-              error: err, // Pass the Error object, not just the message
+              error: err, 
               quarantineId: quarantineResult.quarantine_id,
               filePath
             }, {
@@ -769,8 +794,26 @@ router.post('/:domain/batch-operation', async (req, res) => {
         
         try {
           // Update scan detection status to deleted
-          await updateScanDetectionStatus(scanDetectionId, 'deleted');
-          
+          const detectionId = typeof scanDetectionId === 'string'
+            ? parseInt(scanDetectionId, 10)
+            : scanDetectionId;
+          logger.debug({
+            message: 'Marking scan detection as deleted',
+            scanDetectionId: detectionId
+          }, {
+            component: 'scan-controller',
+            event: 'pre_update_detection_status'
+          });
+          const updated = await updateScanDetectionStatus(detectionId, 'deleted');
+          logger.debug({
+            message: 'Updated scan detection status',
+            scanDetectionId: updated.id ?? detectionId,
+            status: updated.status
+          }, {
+            component: 'scan-controller',
+            event: 'update_detection_status'
+          });
+
           // Create a record in deleted_detections
           const filePath = files[i]?.file_path;
           if (filePath) {
@@ -832,7 +875,7 @@ router.post('/:domain/batch-operation', async (req, res) => {
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
     logger.error({
       message: 'Error processing batch operation',
-      error: err, // Pass the Error object, not just the message
+      error: err, 
       domain: req.params.domain,
       operation: req.body.operation
     }, {
@@ -934,8 +977,26 @@ router.post('/:domain/delete', async (req, res) => {
       // If we have a scan_detection_id, update its status to 'deleted'
       if (scan_detection_id) {
         try {
-          await updateScanDetectionStatus(scan_detection_id, 'deleted');
-          
+          const detectionId = typeof scan_detection_id === 'string'
+            ? parseInt(scan_detection_id, 10)
+            : scan_detection_id;
+          logger.debug({
+            message: 'Marking scan detection as deleted',
+            scanDetectionId: detectionId
+          }, {
+            component: 'scan-controller',
+            event: 'pre_update_detection_status'
+          });
+          const updated = await updateScanDetectionStatus(detectionId, 'deleted');
+          logger.debug({
+            message: 'Updated scan detection status',
+            scanDetectionId: updated.id ?? detectionId,
+            status: updated.status
+          }, {
+            component: 'scan-controller',
+            event: 'update_detection_status'
+          });
+
           // Create a record in deleted_detections
           const insertQuery = `
             INSERT INTO deleted_detections (
@@ -954,7 +1015,7 @@ router.post('/:domain/delete', async (req, res) => {
           
           logger.debug({
             message: 'Created deleted detection record',
-            scanDetectionId: scan_detection_id,
+            scanDetectionId,
             filePath: file_path,
             deletedDetectionId: insertResult.rows[0].id
           }, {

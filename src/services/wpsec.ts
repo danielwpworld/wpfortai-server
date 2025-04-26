@@ -230,11 +230,19 @@ export class WPSecAPI {
     return this.request<QuarantineListResponse>('quarantine-list');
   }
 
-  async restoreQuarantinedFile(quarantineId: string): Promise<QuarantineRestoreResponse> {
-    return this.request<QuarantineRestoreResponse>('restore', {
-      method: 'POST',
-      body: { quarantine_id: quarantineId }
-    });
+  async restoreQuarantinedFile(
+    quarantineIdOrIds: string | string[]
+  ): Promise<QuarantineRestoreResponse | QuarantineRestoreResponse[]> {
+    const body = Array.isArray(quarantineIdOrIds)
+      ? { quarantine_ids: quarantineIdOrIds }
+      : { quarantine_id: quarantineIdOrIds };
+    return this.request<QuarantineRestoreResponse | QuarantineRestoreResponse[]>(
+      'restore',
+      {
+        method: 'POST',
+        body
+      }
+    );
   }
 
   async batchFileOperation(operation: 'delete' | 'quarantine', files: { file_path: string }[]): Promise<BatchOperationResponse> {

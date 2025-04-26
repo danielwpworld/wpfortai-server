@@ -226,6 +226,59 @@ export async function createScanDetection(websiteId: string | number, scanId: st
  * @param status The new status to set
  * @returns The updated scan detection
  */
+/**
+ * Update the status of a scan detection by scan_id and file_path
+ * @param scanId The scan ID
+ * @param filePath The file path
+ * @param status The new status to set
+ * @returns The number of rows updated
+ */
+export async function updateScanDetectionByPath(scanId: string, filePath: string, status: string) {
+  try {
+    const query = `
+      UPDATE scan_detections
+      SET status = $1
+      WHERE scan_id = $2 AND file_path = $3
+      RETURNING id, status, file_path
+    `;
+
+    const values = [status, scanId, filePath];
+
+    const result = await pool.query(query, values);
+    
+    logger.debug({
+      message: 'Updated scan detection by path',
+      scanId,
+      filePath,
+      status,
+      rowsAffected: result.rowCount,
+      updatedRows: result.rows
+    }, {
+      component: 'database',
+      event: 'update_scan_detection_by_path'
+    });
+    
+    return {
+      rowsAffected: result.rowCount,
+      updatedRows: result.rows
+    };
+  } catch (error) {
+    // Ensure error is always an Error object
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error updating scan detection by path',
+      error: err,
+      scanId,
+      filePath,
+      status
+    }, {
+      component: 'database',
+      event: 'update_scan_detection_by_path_error'
+    });
+    throw err;
+  }
+}
+
 export async function updateScanDetectionStatus(detectionId: string | number, status: string) {
   try {
     const query = `

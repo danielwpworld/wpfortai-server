@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
 import type { ScanStartResponse, ScanStatus, ScanResults, QuarantineResponse, QuarantineListResponse, QuarantineRestoreResponse, BatchOperationResponse } from '../types/wpsec';
-import { getWebsiteByDomain, createWebsiteScanResult, updateScanDetectionStatus, createQuarantinedDetection, removeQuarantinedDetection, moveQuarantinedToDeleted, default as pool } from '../config/db';
+import { getWebsiteByDomain, createWebsiteScanResult, updateScanDetectionStatus, updateScanDetectionByPath, createQuarantinedDetection, removeQuarantinedDetection, moveQuarantinedToDeleted, default as pool } from '../config/db';
 import { logger } from '../services/logger';
 
 const router = Router();
@@ -349,42 +349,86 @@ router.post('/:domain/quarantine', async (req, res) => {
     // Capture update status
     let detectionUpdate: any = null;
 
-    // Update the detection status in the database if scan_detection_id is provided
-    if (scan_detection_id) {
-      // Ensure numeric ID and log before updating
-      const detectionId = typeof scan_detection_id === 'string'
-        ? parseInt(scan_detection_id, 10)
-        : scan_detection_id;
-      logger.debug({
-        message: 'Marking scan detection as quarantined',
-        scanDetectionId: detectionId
-      }, {
-        component: 'scan-controller',
-        event: 'pre_update_detection_status'
-      });
-      try {
-        const updated = await updateScanDetectionStatus(detectionId, 'quarantined');
-        detectionUpdate = updated;
+    // Update the detection status in the database using scan_id and file_path
+    try {
+      // First check if we have a scan_id from the request body
+      let scanId = '';
+      
+      if (scan_detection_id) {
+        // If we have a scan_detection_id, we'll still use it as a fallback
+        try {
+          const detectionId = typeof scan_detection_id === 'string'
+            ? parseInt(scan_detection_id, 10)
+            : scan_detection_id;
+          const updated = await updateScanDetectionStatus(detectionId, 'quarantined');
+          detectionUpdate = updated;
+        } catch (idError) {
+          logger.warn({
+            message: 'Failed to update by detection ID, will try by path',
+            error: idError instanceof Error ? idError.message : String(idError),
+            scanDetectionId: scan_detection_id
+          }, {
+            component: 'scan-controller',
+            event: 'detection_id_update_failed'
+          });
+        }
+      }
+      
+      // Now try to update by path using the scan_id from the result
+      // This requires querying the database to find the scan_id for this file_path
+      const findScanQuery = `
+        SELECT scan_id FROM scan_detections 
+        WHERE file_path = $1 
+        ORDER BY created_at DESC LIMIT 1
+      `;
+      
+      const scanResult = await pool.query(findScanQuery, [file_path]);
+      if (scanResult.rows.length > 0) {
+        scanId = scanResult.rows[0].scan_id;
+        
         logger.debug({
-          message: 'Updated scan detection status',
-          scanDetectionId: updated.id ?? detectionId,
-          status: updated.status
+          message: 'Found scan_id for file path',
+          scanId,
+          filePath: file_path
+        }, {
+          component: 'scan-controller',
+          event: 'found_scan_id'
+        });
+        
+        const pathUpdate = await updateScanDetectionByPath(scanId, file_path, 'quarantined');
+        detectionUpdate = pathUpdate;
+        
+        logger.debug({
+          message: 'Updated scan detection status by path',
+          scanId,
+          filePath: file_path,
+          status: 'quarantined',
+          rowsAffected: pathUpdate.rowsAffected,
+          updatedRows: pathUpdate.updatedRows
         }, {
           component: 'scan-controller',
           event: 'update_detection_status'
         });
-      } catch (dbError) {
-        // Ensure dbError is always an Error object
-        const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
-        logger.error({
-          message: 'Failed to update scan detection status',
-          error: err, 
-          scanDetectionId: detectionId
+      } else {
+        logger.warn({
+          message: 'No scan_id found for file path',
+          filePath: file_path
         }, {
           component: 'scan-controller',
-          event: 'update_detection_status_error'
+          event: 'missing_scan_id'
         });
       }
+    } catch (dbError) {
+      // Ensure dbError is always an Error object
+      const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
+      logger.error({
+        message: 'Failed to update scan detection status by path',
+        error: err,
+        filePath: file_path
+      }, {
+        component: 'scan-controller',
+        event: 'update_detection_status_error'
+      });
     }
 
     // Insert the file into the quarantined_detections table

@@ -1059,7 +1059,7 @@ router.post('/:domain/delete', async (req, res) => {
           
           logger.debug({
             message: 'Created deleted detection record',
-            scanDetectionId,
+            scanDetectionId: scan_detection_id,
             filePath: file_path,
             deletedDetectionId: insertResult.rows[0].id
           }, {

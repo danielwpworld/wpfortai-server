@@ -1,0 +1,195 @@
+openapi: 3.0.3
+info:
+  title: WPFort Whitelisting API
+  description: API for managing file whitelisting in WPFort
+  version: 1.0.0
+servers:
+  - url: /api/scans/{domain}/whitelist
+paths:
+  /api/scans/{domain}/whitelist:
+    post:
+      summary: Add a file to the whitelist
+      parameters:
+        - in: path
+          name: domain
+          schema:
+            type: string
+          required: true
+          description: Website domain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_path
+              properties:
+                file_path:
+                  type: string
+                  example: /var/www/html/wp-content/plugins/plugin1/legit.php
+                reason:
+                  type: string
+                  example: False positive - trusted file
+                added_by:
+                  type: string
+                  example: user
+      responses:
+        '200':
+          description: File successfully whitelisted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  whitelisted:
+                    $ref: '#/components/schemas/WhitelistedDetection'
+
+  /api/scans/{domain}/whitelist/remove:
+    post:
+      summary: Remove a file from the whitelist
+      parameters:
+        - in: path
+          name: domain
+          schema:
+            type: string
+          required: true
+          description: Website domain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - file_path
+                - file_hash
+              properties:
+                file_path:
+                  type: string
+                  example: /var/www/html/wp-content/plugins/plugin1/legit.php
+                file_hash:
+                  type: string
+                  example: abc123...
+      responses:
+        '200':
+          description: File successfully removed from whitelist
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+  /api/scans/{domain}/whitelist:
+    get:
+      summary: Fetch all whitelisted files
+      parameters:
+        - in: path
+          name: domain
+          schema:
+            type: string
+          required: true
+          description: Website domain
+      responses:
+        '200':
+          description: List of whitelisted files
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  whitelisted_files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WhitelistedDetection'
+
+  /api/scans/{domain}/whitelist/verify:
+    get:
+      summary: Verify whitelist integrity
+      parameters:
+        - in: path
+          name: domain
+          schema:
+            type: string
+          required: true
+          description: Website domain
+      responses:
+        '200':
+          description: Whitelist integrity result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrity:
+                    type: string
+                    example: ok
+                  details:
+                    type: array
+                    items:
+                      type: object
+
+  /api/scans/{domain}/whitelist/cleanup:
+    post:
+      summary: Cleanup whitelist
+      parameters:
+        - in: path
+          name: domain
+          schema:
+            type: string
+          required: true
+          description: Website domain
+      responses:
+        '200':
+          description: Whitelist cleanup result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+
+components:
+  schemas:
+    WhitelistedDetection:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        website_id:
+          type: string
+          format: uuid
+          example: 9ead9972-793a-42b0-890b-932820685742
+        scan_detection_id:
+          type: integer
+          example: 456
+        file_path:
+          type: string
+          example: /var/www/html/wp-content/plugins/plugin1/legit.php
+        file_hash:
+          type: string
+          example: abc123...
+        file_size:
+          type: integer
+          example: 2048
+        detection_type:
+          type: array
+          items:
+            type: string
+          example: ["malware"]
+        reason:
+          type: string
+          example: False positive - trusted file
+        whitelisted_at:
+          type: string
+          format: date-time
+          example: 2025-04-29T09:37:00Z

@@ -318,6 +318,7 @@ router.post('/:domain/quarantine', async (req, res) => {
   try {
     const { domain } = req.params;
     const { file_path, scan_detection_id, scan_finding_id } = req.body;
+    let foundScanDetectionId = null;
 
     if (!file_path) {
       return res.status(400).json({ error: 'file_path is required' });
@@ -346,127 +347,40 @@ router.post('/:domain/quarantine', async (req, res) => {
 
     // Call the WPSec API to quarantine the file
     const result = await api.quarantineFile(file_path);
-    // Capture update status
     let detectionUpdate: any = null;
 
-    // Update the detection status in the database using scan_id and file_path
-    try {
-      // First check if we have a scan_id from the request body
-      let scanId = '';
-      
-      if (scan_detection_id) {
-        // If we have a scan_detection_id, we'll still use it as a fallback
-        try {
-          const detectionId = typeof scan_detection_id === 'string'
-            ? parseInt(scan_detection_id, 10)
-            : scan_detection_id;
-          const updated = await updateScanDetectionStatus(detectionId, 'quarantined');
-          detectionUpdate = updated;
-        } catch (idError) {
-          logger.warn({
-            message: 'Failed to update by detection ID, will try by path',
-            error: idError instanceof Error ? idError.message : String(idError),
-            scanDetectionId: scan_detection_id
-          }, {
-            component: 'scan-controller',
-            event: 'detection_id_update_failed'
-          });
-        }
-      }
-      
-      // Now try to update by path using the scan_id from the result
-      // This requires querying the database to find the scan_id for this file_path
-      const findScanQuery = `
-        SELECT scan_id FROM scan_detections 
-        WHERE file_path = $1 
-        ORDER BY created_at DESC LIMIT 1
-      `;
-      
-      const scanResult = await pool.query(findScanQuery, [file_path]);
-      if (scanResult.rows.length > 0) {
-        scanId = scanResult.rows[0].scan_id;
-        
-        logger.debug({
-          message: 'Found scan_id for file path',
-          scanId,
-          filePath: file_path
-        }, {
-          component: 'scan-controller',
-          event: 'found_scan_id'
-        });
-        
-        const pathUpdate = await updateScanDetectionByPath(scanId, file_path, 'quarantined');
-        detectionUpdate = pathUpdate;
-        
-        logger.debug({
-          message: 'Updated scan detection status by path',
-          scanId,
-          filePath: file_path,
-          status: 'quarantined',
-          rowsAffected: pathUpdate.rowsAffected,
-          updatedRows: pathUpdate.updatedRows
-        }, {
-          component: 'scan-controller',
-          event: 'update_detection_status'
-        });
-      } else {
-        logger.warn({
-          message: 'No scan_id found for file path',
-          filePath: file_path
-        }, {
-          component: 'scan-controller',
-          event: 'missing_scan_id'
-        });
-      }
-    } catch (dbError) {
-      // Ensure dbError is always an Error object
-      const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
-      logger.error({
-        message: 'Failed to update scan detection status by path',
-        error: err,
-        filePath: file_path
-      }, {
-        component: 'scan-controller',
-        event: 'update_detection_status_error'
-      });
+    // --- ENHANCED LOGIC: Update all relevant scan_detections and insert into quarantined_detections ---
+    // Find all scan_detections for this website, file_path, and file_hash
+    const detectionResult = await pool.query(
+      `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+      [website.id, file_path, req.body.file_hash]
+    );
+    if (detectionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No scan detection found for file' });
     }
 
-    // Insert the file into the quarantined_detections table
-    try {
+    // Update all matching scan_detections.status to 'quarantined'
+    const updateQuery = `
+      UPDATE scan_detections SET status = 'quarantined'
+      WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
+    await pool.query(updateQuery, [website.id, file_path, req.body.file_hash]);
+
+    // Insert into quarantined_detections for each detection
+    const insertPromises = detectionResult.rows.map(async (detection: any) => {
       await createQuarantinedDetection({
-        scan_detection_id: scan_detection_id ? parseInt(scan_detection_id) : null,
+        scan_detection_id: detection.id,
         quarantine_id: result.quarantine_id,
-        original_path: file_path,
+        original_path: detection.file_path,
         quarantine_path: result.quarantine_path || 'unknown',
         timestamp: new Date(),
-        scan_finding_id: scan_finding_id || null,
-        file_size: result.file_size || 0,
-        file_type: result.file_type || 'unknown',
-        file_hash: result.file_hash || null,
-        detection_type: result.detection_type || 'manual'
+        scan_finding_id: detection.scan_finding_id || null,
+        file_size: detection.file_size || 0,
+        file_type: detection.file_type || 'unknown',
+        file_hash: detection.file_hash || null,
+        detection_type: detection.detection_type ? (Array.isArray(detection.detection_type) ? detection.detection_type : [detection.detection_type]) : ['manual']
       });
-
-      logger.debug({
-        message: 'Created quarantined detection record',
-        quarantineId: result.quarantine_id,
-        filePath: file_path
-      }, {
-        component: 'scan-controller',
-        event: 'create_quarantined_detection'
-      });
-    } catch (dbError) {
-      // Ensure dbError is always an Error object
-      const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
-      logger.error({
-        message: 'Failed to create quarantined detection record',
-        error: err, 
-        quarantineId: result.quarantine_id,
-        filePath: file_path
-      }, {
-        component: 'scan-controller',
-        event: 'create_quarantined_detection_error'
-      });
-    }
+    });
+    await Promise.all(insertPromises);
 
     logger.info({
       message: 'File quarantined successfully',
@@ -478,7 +392,7 @@ router.post('/:domain/quarantine', async (req, res) => {
       event: 'file_quarantined'
     });
 
-    res.json({ result, detectionUpdate });
+    res.json({ status: 'success', quarantine_id: result.quarantine_id });
   } catch (error) {
     console.error('Error quarantining file:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');
@@ -497,15 +411,272 @@ router.get('/:domain/quarantine', async (req, res) => {
       return res.status(404).json({ error: 'Website not found' });
     }
 
+    logger.debug({
+      message: 'Retrieving quarantined files from database',
+      domain,
+      websiteId: website.id
+    }, {
+      component: 'scan-controller',
+      event: 'get_quarantined_files'
+    });
+
+    // Query the quarantined_detections table
+    // We need to handle records with null scan_detection_id
+    const query = `
+      SELECT qd.*, sd.scan_id, sd.detection_type as scan_detection_type, sd.status as scan_detection_status
+      FROM quarantined_detections qd
+      LEFT JOIN scan_detections sd ON qd.scan_detection_id = sd.id
+      WHERE 
+        (sd.website_id = $1) OR 
+        (qd.scan_detection_id IS NULL AND EXISTS (
+          SELECT 1 FROM websites w WHERE w.domain = $2
+        ))
+      ORDER BY qd.timestamp DESC
+    `;
+    
+    const result = await pool.query(query, [website.id, domain]);
+    
+    logger.debug({
+      message: 'Retrieved quarantined files',
+      domain,
+      count: result.rows.length
+    }, {
+      component: 'scan-controller',
+      event: 'quarantined_files_retrieved'
+    });
+    
+    res.json({
+      status: 'success',
+      quarantined_files: result.rows
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error getting quarantined files',
+      error: err,
+      domain: req.params.domain
+    }, {
+      component: 'scan-controller',
+      event: 'get_quarantined_files_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add file to whitelist
+router.post('/:domain/whitelist', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const { file_path, reason, added_by } = req.body;
+    logger.debug({
+      message: 'Adding file to whitelist',
+      domain,
+      filePath: file_path,
+      reason,
+      addedBy: added_by
+    }, {
+      component: 'whitelist-controller',
+      event: 'add_to_whitelist'
+    });
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
     // Create WPSec API instance
     const api = new WPSecAPI(domain);
-
-    // Get quarantined files
-    const files = await api.getQuarantinedFiles();
-    res.json(files);
-  } catch (error) {
-    console.error('Error getting quarantined files:', error);
+    logger.info({
+      message: 'Calling api.whitelistFile',
+      domain,
+      filePath: file_path,
+      reason,
+      addedBy: added_by
+    }, {
+      component: 'whitelist-controller',
+      event: 'whitelist_api_call_start'
+    });
+    try {
+      const result = await api.whitelistFile(file_path, reason, added_by);
+      logger.info({
+        message: 'api.whitelistFile succeeded',
+        domain,
+        filePath: file_path,
+        reason,
+        addedBy: added_by,
+        apiResult: result
+      }, {
+        component: 'whitelist-controller',
+        event: 'whitelist_api_call_success'
+      });
+    } catch (apiError) {
+      const errorMsg = apiError instanceof Error ? apiError.message : String(apiError);
+      logger.error({
+        message: 'api.whitelistFile failed',
+        domain,
+        filePath: file_path,
+        reason,
+        addedBy: added_by,
+        error: errorMsg
+      }, {
+        component: 'whitelist-controller',
+        event: 'whitelist_api_call_error'
+      });
+      return res.status(502).json({ error: 'Failed to whitelist file on WPSec site', details: errorMsg });
+    }
+    // --- Update scan_detections and insert into whitelisted_detections ---
+    const detectionResult = await pool.query(
+      `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+      [website.id, file_path, req.body.file_hash]
+    );
+    if (detectionResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No scan detection found for file' });
+    }
+    const updateQuery = `
+      UPDATE scan_detections SET status = 'whitelisted'
+      WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
+    await pool.query(updateQuery, [website.id, file_path, req.body.file_hash]);
+    const detection = detectionResult.rows[0];
+    const insertQuery = `
+      INSERT INTO whitelisted_detections (
+        website_id, scan_detection_id, file_path, file_hash, file_size, detection_type, reason, whitelisted_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      ON CONFLICT (website_id, file_path) DO UPDATE SET reason = EXCLUDED.reason, whitelisted_at = NOW()
+      RETURNING *
+    `;
+    const insertValues = [
+      website.id,
+      detection.id,
+      detection.file_path,
+      detection.file_hash,
+      detection.file_size,
+      detection.detection_type,
+      reason || null
+    ];
+    const whitelistedRes = await pool.query(insertQuery, insertValues);
+    const whitelisted = whitelistedRes.rows[0];
+    logger.info({
+      message: 'File added to whitelist successfully',
+      domain,
+      filePath: file_path,
+      reason,
+      addedBy: added_by
+    }, {
+      component: 'whitelist-controller',
+      event: 'file_whitelisted'
+    });
+    res.json({ status: 'success', whitelisted });
+  } catch (error: any) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error adding file to whitelist',
+      error,
+      domain: errorDomain,
+      filePath: req.body.file_path
+    }, {
+      component: 'whitelist-controller',
+      event: 'whitelist_error'
+    });
     const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remove file from whitelist
+router.post('/:domain/whitelist/remove', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const { file_path, file_hash } = req.body;
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+    await api.removeWhitelistedFile(file_path);
+    // Update all scan_detections for this file_path and file_hash to 'active'
+    const updateQuery = `
+      UPDATE scan_detections SET status = 'active'
+      WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
+    await pool.query(updateQuery, [website.id, file_path, file_hash]);
+    // Remove from whitelisted_detections
+    const deleteQuery = `
+      DELETE FROM whitelisted_detections
+      WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
+    await pool.query(deleteQuery, [website.id, file_path, file_hash]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing file from whitelist:', error);
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Verify whitelist integrity
+router.get('/:domain/whitelist/verify', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+    const result = await api.verifyWhitelistIntegrity();
+    res.json(result);
+  } catch (error) {
+    console.error('Error verifying whitelist integrity:', error);
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Cleanup whitelist
+router.post('/:domain/whitelist/cleanup', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+    await api.cleanupWhitelist();
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error cleaning up whitelist:', error);
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch whitelisted files
+router.get('/:domain/whitelist', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    // Fetch all whitelisted files for this website
+    const query = `
+      SELECT * FROM whitelisted_detections WHERE website_id = $1 ORDER BY whitelisted_at DESC
+    `;
+    const result = await pool.query(query, [website.id]);
+    res.json({ whitelisted_files: result.rows });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error getting whitelisted files',
+      error: err,
+      domain: req.params.domain
+    }, {
+      component: 'scan-controller',
+      event: 'get_whitelisted_files_error'
+    });
     res.status(500).json({ error: err.message });
   }
 });
@@ -542,51 +713,39 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
       event: 'restore_from_quarantine'
     });
 
-    // Remove quarantined detection records
+    // Enhanced restore logic: For each quarantine_id, mark all related scan_detections as 'active' and remove all corresponding quarantined_detections
     for (const id of ids) {
       try {
-        const { deletedRecord, scanDetectionId } = await removeQuarantinedDetection(id);
-        // Update the scan detection status back to 'active'
-        if (scanDetectionId) {
-          try {
-            await updateScanDetectionStatus(scanDetectionId, 'active');
-            logger.debug({
-              message: 'Updated scan detection status',
-              scanDetectionId,
-              status: 'active'
-            }, {
-              component: 'scan-controller',
-              event: 'update_detection_status'
-            });
-          } catch (dbError) {
-            const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
-            logger.error({
-              message: 'Failed to update scan detection status',
-              error: err,
-              scanDetectionId
-            }, {
-              component: 'scan-controller',
-              event: 'update_detection_status_error'
-            });
-          }
-        }
+        // Get the quarantined detection record (to access file_path, file_hash, website_id)
+        const getQuery = `SELECT * FROM quarantined_detections WHERE quarantine_id = $1`;
+        const getResult = await pool.query(getQuery, [id]);
+        if (getResult.rows.length === 0) continue;
+        const qd = getResult.rows[0];
+        // Update all scan_detections for this website, file_path, and file_hash to 'active'
+        const updateQuery = `UPDATE scan_detections SET status = 'active' WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
+        await pool.query(updateQuery, [qd.website_id, qd.original_path, qd.file_hash]);
+        // Remove all corresponding quarantined_detections
+        const deleteQuery = `DELETE FROM quarantined_detections WHERE website_id = $1 AND original_path = $2 AND file_hash = $3`;
+        await pool.query(deleteQuery, [qd.website_id, qd.original_path, qd.file_hash]);
         logger.debug({
-          message: 'Removed quarantined detection record',
+          message: 'Restored all matching scan detections and removed quarantined detections',
           quarantineId: id,
-          originalPath: deletedRecord.original_path
+          websiteId: qd.website_id,
+          filePath: qd.original_path,
+          fileHash: qd.file_hash
         }, {
           component: 'scan-controller',
-          event: 'remove_quarantined_detection'
+          event: 'restore_all_from_quarantine'
         });
       } catch (dbError) {
         const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
         logger.error({
-          message: 'Failed to remove quarantined detection record',
+          message: 'Failed to restore all matching scan detections or remove quarantined detections',
           error: err,
           quarantineId: id
         }, {
           component: 'scan-controller',
-          event: 'remove_quarantined_detection_error'
+          event: 'restore_all_from_quarantine_error'
         });
       }
     }
@@ -708,6 +867,140 @@ router.post('/:domain/batch-operation', async (req, res) => {
     // Process batch operation
     const result = await api.batchFileOperation(operation, files);
 
+    // Enhanced batch logic for quarantine and delete
+    if (operation === 'quarantine' && result.status === 'success') {
+      // For each quarantined file, mark all past detections as quarantined and insert into quarantined_detections
+      for (let i = 0; i < result.results.success.length; i++) {
+        const successItem = result.results.success[i];
+        const filePath = successItem.file_path;
+        const quarantineResult = successItem.result;
+        // Try to get file_hash from quarantineResult, else from input
+        // Type guard for quarantineResult
+        let fileHash: string | undefined = undefined;
+        if (quarantineResult && typeof quarantineResult === 'object' && 'file_hash' in quarantineResult) {
+          fileHash = quarantineResult.file_hash ?? undefined;
+        } else {
+          fileHash = files[i]?.file_hash ?? undefined;
+        }
+        if (!fileHash) {
+          // Try to get the latest file_hash from scan_detections
+          const hashResult = await pool.query(
+            `SELECT file_hash FROM scan_detections WHERE website_id = $1 AND file_path = $2 ORDER BY created_at DESC LIMIT 1`,
+            [website.id, filePath]
+          );
+          if (hashResult.rows.length > 0) fileHash = hashResult.rows[0].file_hash;
+        }
+        if (!fileHash) {
+          logger.warn({
+            message: 'No file_hash found for file_path in batch quarantine',
+            filePath,
+            websiteId: website.id
+          }, {
+            component: 'scan-controller',
+            event: 'batch_quarantine_missing_hash'
+          });
+          continue;
+        }
+        // Get all detections for this file
+        const detectionResult = await pool.query(
+          `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+          [website.id, filePath, fileHash]
+        );
+        // Mark all as quarantined
+        await pool.query(
+          `UPDATE scan_detections SET status = 'quarantined' WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+          [website.id, filePath, fileHash]
+        );
+        // Insert into quarantined_detections for each
+        for (const detection of detectionResult.rows) {
+          let quarantineId = 'unknown';
+          let quarantinePath = 'unknown';
+          if (quarantineResult && typeof quarantineResult === 'object') {
+            if ('quarantine_id' in quarantineResult && quarantineResult.quarantine_id) {
+              quarantineId = quarantineResult.quarantine_id;
+            }
+            if ('quarantine_path' in quarantineResult && quarantineResult.quarantine_path) {
+              quarantinePath = quarantineResult.quarantine_path;
+            }
+          }
+          await createQuarantinedDetection({
+            scan_detection_id: detection.id,
+            quarantine_id: quarantineId,
+            original_path: detection.file_path,
+            quarantine_path: quarantinePath,
+            timestamp: new Date(),
+            scan_finding_id: detection.scan_finding_id || null,
+            file_size: detection.file_size || 0,
+            file_type: detection.file_type || 'unknown',
+            file_hash: detection.file_hash || null,
+            detection_type: detection.detection_type ? (Array.isArray(detection.detection_type) ? detection.detection_type : [detection.detection_type]) : ['batch']
+          });
+        }
+        logger.info({
+          message: 'Batch: Marked all past detections as quarantined and created quarantined_detections records',
+          websiteId: website.id,
+          filePath,
+          fileHash
+        }, {
+          component: 'scan-controller',
+          event: 'batch_quarantine_bulk_update'
+        });
+      }
+    }
+    if (operation === 'delete' && result.status === 'success') {
+      // For each deleted file, mark all past detections as deleted and insert into deleted_detections
+      for (let i = 0; i < files.length; i++) {
+        const filePath = files[i]?.file_path;
+        if (!filePath) continue;
+        let fileHash = files[i]?.file_hash;
+        if (!fileHash) {
+          // Try to get the latest file_hash from scan_detections
+          const hashResult = await pool.query(
+            `SELECT file_hash FROM scan_detections WHERE website_id = $1 AND file_path = $2 ORDER BY created_at DESC LIMIT 1`,
+            [website.id, filePath]
+          );
+          if (hashResult.rows.length > 0) fileHash = hashResult.rows[0].file_hash;
+        }
+        if (!fileHash) {
+          logger.warn({
+            message: 'No file_hash found for file_path in batch delete',
+            filePath,
+            websiteId: website.id
+          }, {
+            component: 'scan-controller',
+            event: 'batch_delete_missing_hash'
+          });
+          continue;
+        }
+        // Get all detections for this file
+        const detectionResult = await pool.query(
+          `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+          [website.id, filePath, fileHash]
+        );
+        // Mark all as deleted
+        await pool.query(
+          `UPDATE scan_detections SET status = 'deleted' WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+          [website.id, filePath, fileHash]
+        );
+        // Insert into deleted_detections for each
+        for (const detection of detectionResult.rows) {
+          await pool.query(
+            `INSERT INTO deleted_detections (scan_detection_id, file_path, timestamp) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [detection.id, filePath, new Date()]
+          );
+        }
+        logger.info({
+          message: 'Batch: Marked all past detections as deleted and created deleted_detections records',
+          websiteId: website.id,
+          filePath,
+          fileHash
+        }, {
+          component: 'scan-controller',
+          event: 'batch_delete_bulk_update'
+        });
+      }
+    }
+
     // If operation is quarantine, update database records for each successfully quarantined file
     if (operation === 'quarantine' && result.status === 'success') {
       // Process each successful result
@@ -715,6 +1008,9 @@ router.post('/:domain/batch-operation', async (req, res) => {
         const successItem = result.results.success[i];
         const filePath = successItem.file_path;
         const quarantineResult = successItem.result;
+        
+        // Track the final detection ID we'll use
+        let foundScanDetectionId = null;
         
         // If we have scan_detection_ids array, use the corresponding ID
         const scanDetectionId = scan_detection_ids && scan_detection_ids[i] ? scan_detection_ids[i] : null;
@@ -733,6 +1029,7 @@ router.post('/:domain/batch-operation', async (req, res) => {
               event: 'pre_update_detection_status'
             });
             const updated = await updateScanDetectionStatus(detectionId, 'quarantined');
+            foundScanDetectionId = detectionId;
             logger.debug({
               message: 'Updated scan detection status',
               scanDetectionId: updated.id ?? detectionId,
@@ -754,12 +1051,117 @@ router.post('/:domain/batch-operation', async (req, res) => {
             });
           }
         }
+        
+        // If we don't have a scan_detection_id or the update failed, try to find it by file path
+        if (!foundScanDetectionId) {
+          try {
+            // First try to find the detection ID directly
+            const findDetectionQuery = `
+              SELECT id, scan_id FROM scan_detections 
+              WHERE file_path = $1 AND website_id = $2
+              ORDER BY created_at DESC LIMIT 1
+            `;
+            
+            const detectionResult = await pool.query(findDetectionQuery, [filePath, website.id]);
+            
+            if (detectionResult.rows.length > 0) {
+              foundScanDetectionId = detectionResult.rows[0].id;
+              const scanId = detectionResult.rows[0].scan_id;
+              
+              logger.debug({
+                message: 'Found scan_detection_id for file path in batch operation',
+                scanDetectionId: foundScanDetectionId,
+                scanId,
+                filePath
+              }, {
+                component: 'scan-controller',
+                event: 'batch_found_scan_detection_id'
+              });
+              
+              // Update the scan detection status
+              const updated = await updateScanDetectionStatus(foundScanDetectionId, 'quarantined');
+              
+              logger.debug({
+                message: 'Updated scan detection status by found ID in batch operation',
+                scanDetectionId: foundScanDetectionId,
+                status: 'quarantined'
+              }, {
+                component: 'scan-controller',
+                event: 'batch_update_detection_status'
+              });
+            } else {
+              // If we can't find the detection ID, try updating by path
+              const findScanQuery = `
+                SELECT scan_id FROM scan_detections 
+                WHERE file_path = $1 
+                ORDER BY created_at DESC LIMIT 1
+              `;
+              
+              const scanResult = await pool.query(findScanQuery, [filePath]);
+              
+              if (scanResult.rows.length > 0) {
+                const scanId = scanResult.rows[0].scan_id;
+                
+                logger.debug({
+                  message: 'Found scan_id for file path in batch operation',
+                  scanId,
+                  filePath
+                }, {
+                  component: 'scan-controller',
+                  event: 'batch_found_scan_id'
+                });
+                
+                const pathUpdate = await updateScanDetectionByPath(scanId, filePath, 'quarantined');
+                
+                // Try to get the detection ID from the updated rows
+                if (pathUpdate.updatedRows && pathUpdate.updatedRows.length > 0) {
+                  foundScanDetectionId = pathUpdate.updatedRows[0].id;
+                }
+                
+                logger.debug({
+                  message: 'Updated scan detection status by path in batch operation',
+                  scanId,
+                  filePath,
+                  status: 'quarantined',
+                  rowsAffected: pathUpdate.rowsAffected,
+                  foundScanDetectionId
+                }, {
+                  component: 'scan-controller',
+                  event: 'batch_update_detection_status_by_path'
+                });
+              } else {
+                logger.warn({
+                  message: 'No scan_id or scan_detection_id found for file path in batch operation',
+                  filePath,
+                  websiteId: website.id
+                }, {
+                  component: 'scan-controller',
+                  event: 'batch_missing_scan_detection_id'
+                });
+              }
+            }
+          } catch (dbError) {
+            // Ensure dbError is always an Error object
+            const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
+            logger.error({
+              message: 'Failed to find or update scan detection in batch operation',
+              error: err,
+              filePath
+            }, {
+              component: 'scan-controller',
+              event: 'batch_find_detection_error'
+            });
+          }
+        }
 
         // Create quarantined detection record if we have a valid quarantine result
         if (quarantineResult && typeof quarantineResult !== 'boolean' && quarantineResult.quarantine_id) {
           try {
+            // Use foundScanDetectionId if available, otherwise fall back to scanDetectionId
+            const detectionId = foundScanDetectionId || (scanDetectionId ? parseInt(scanDetectionId) : null);
+            
             await createQuarantinedDetection({
-              scan_detection_id: scanDetectionId ? parseInt(scanDetectionId) : null,
+              scan_detection_id: detectionId,
               quarantine_id: quarantineResult.quarantine_id,
               original_path: filePath,
               quarantine_path: quarantineResult.quarantine_path || 'unknown',
@@ -768,13 +1170,14 @@ router.post('/:domain/batch-operation', async (req, res) => {
               file_size: quarantineResult.file_size || 0,
               file_type: quarantineResult.file_type || 'unknown',
               file_hash: quarantineResult.file_hash || null,
-              detection_type: quarantineResult.detection_type || 'batch'
+              detection_type: quarantineResult.detection_type ? (Array.isArray(quarantineResult.detection_type) ? quarantineResult.detection_type : [quarantineResult.detection_type]) : ['batch']
             });
 
             logger.debug({
               message: 'Created quarantined detection record in batch operation',
               quarantineId: quarantineResult.quarantine_id,
-              filePath
+              filePath,
+              scanDetectionId: detectionId
             }, {
               component: 'scan-controller',
               event: 'batch_create_quarantined_detection'
@@ -1018,8 +1421,57 @@ router.post('/:domain/delete', async (req, res) => {
       // Regular file delete (not quarantined)
       const result = await api.deleteFile(file_path);
 
-      // If we have a scan_detection_id, update its status to 'deleted'
-      if (scan_detection_id) {
+      // Enhanced logic: mark all past detections of this file as deleted and insert into deleted_detections
+      // Fetch file_hash for this file_path and website
+      let fileHash = req.body.file_hash;
+      if (!fileHash) {
+        // Try to get the latest file_hash from scan_detections
+        const hashResult = await pool.query(
+          `SELECT file_hash FROM scan_detections WHERE website_id = $1 AND file_path = $2 ORDER BY created_at DESC LIMIT 1`,
+          [website.id, file_path]
+        );
+        if (hashResult.rows.length > 0) fileHash = hashResult.rows[0].file_hash;
+      }
+      if (!fileHash) {
+        logger.warn({
+          message: 'No file_hash found for file_path when deleting',
+          filePath: file_path,
+          websiteId: website.id
+        }, {
+          component: 'scan-controller',
+          event: 'delete_file_missing_hash'
+        });
+        // Fallback: do not bulk update, just proceed as before
+      }
+      if (fileHash) {
+        // Get all detections for this file
+        const detectionResult = await pool.query(
+          `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+          [website.id, file_path, fileHash]
+        );
+        // Mark all as deleted
+        await pool.query(
+          `UPDATE scan_detections SET status = 'deleted' WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
+          [website.id, file_path, fileHash]
+        );
+        // Insert into deleted_detections for each
+        for (const detection of detectionResult.rows) {
+          await pool.query(
+            `INSERT INTO deleted_detections (scan_detection_id, file_path, timestamp) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [detection.id, file_path, new Date()]
+          );
+        }
+        logger.info({
+          message: 'Marked all past detections as deleted and created deleted_detections records',
+          websiteId: website.id,
+          filePath: file_path,
+          fileHash
+        }, {
+          component: 'scan-controller',
+          event: 'delete_file_bulk_update'
+        });
+      } else if (scan_detection_id) {
+        // Fallback: update just the single detection
         try {
           const detectionId = typeof scan_detection_id === 'string'
             ? parseInt(scan_detection_id, 10)
@@ -1040,7 +1492,6 @@ router.post('/:domain/delete', async (req, res) => {
             component: 'scan-controller',
             event: 'update_detection_status'
           });
-
           // Create a record in deleted_detections
           const insertQuery = `
             INSERT INTO deleted_detections (
@@ -1048,15 +1499,8 @@ router.post('/:domain/delete', async (req, res) => {
             ) VALUES ($1, $2, $3)
             RETURNING id
           `;
-          
-          const insertValues = [
-            scan_detection_id,
-            file_path,
-            new Date()
-          ];
-          
+          const insertValues = [scan_detection_id, file_path, new Date()];
           const insertResult = await pool.query(insertQuery, insertValues);
-          
           logger.debug({
             message: 'Created deleted detection record',
             scanDetectionId: scan_detection_id,
@@ -1107,6 +1551,158 @@ router.post('/:domain/delete', async (req, res) => {
     }, {
       component: 'scan-controller',
       event: 'delete_file_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all scan detections for a domain
+router.get('/:domain/detections', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const status = req.query.status as string | undefined;
+    const scan_id = req.query.scan_id as string | undefined;
+    
+    // Parse and validate limit/offset
+    let limit = 100;
+    let offset = 0;
+    
+    if (req.query.limit) {
+      const parsedLimit = parseInt(req.query.limit as string);
+      if (!isNaN(parsedLimit) && parsedLimit > 0) {
+        limit = parsedLimit;
+      }
+    }
+    
+    if (req.query.offset) {
+      const parsedOffset = parseInt(req.query.offset as string);
+      if (!isNaN(parsedOffset) && parsedOffset >= 0) {
+        offset = parsedOffset;
+      }
+    }
+    
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    logger.debug({
+      message: 'Retrieving scan detections',
+      domain,
+      websiteId: website.id,
+      status: status || 'all',
+      limit,
+      offset,
+      scanId: scan_id
+    }, {
+      component: 'scan-controller',
+      event: 'get_scan_detections'
+    });
+    
+    // Build the base query
+    const baseQuery = `
+      FROM scan_detections sd
+      LEFT JOIN website_scans ws ON sd.scan_id = ws.scan_id
+      LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
+      LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
+      WHERE sd.website_id = $1
+    `;
+    
+    // Build conditions array and params array
+    const conditions = [];
+    // Ensure website.id is treated as a UUID string, not a number
+    const params = [website.id.toString()];
+    
+    // Add filters
+    if (status) {
+      conditions.push(`sd.status = $${params.length + 1}`);
+      params.push(status);
+    }
+    
+    if (scan_id) {
+      conditions.push(`sd.scan_id = $${params.length + 1}`);
+      params.push(scan_id);
+    }
+    
+    // Combine conditions
+    const whereClause = conditions.length > 0 
+      ? ` AND ${conditions.join(' AND ')}` 
+      : '';
+    
+    // Build the full data query
+    const dataQuery = `
+      SELECT 
+        sd.*,
+        ws.scan_id as website_scan_id,
+        ws.started_at as scan_started_at,
+        ws.completed_at as scan_completed_at,
+        ws.status as scan_status,
+        CASE 
+          WHEN qd.id IS NOT NULL THEN json_build_object(
+            'id', qd.id,
+            'quarantine_id', qd.quarantine_id,
+            'original_path', qd.original_path,
+            'quarantine_path', qd.quarantine_path,
+            'timestamp', qd.timestamp,
+            'file_size', qd.file_size,
+            'file_type', qd.file_type,
+            'file_hash', qd.file_hash
+          )
+          ELSE NULL
+        END as quarantine_info,
+        CASE 
+          WHEN dd.id IS NOT NULL THEN json_build_object(
+            'id', dd.id,
+            'timestamp', dd.timestamp
+          )
+          ELSE NULL
+        END as deletion_info
+      ${baseQuery}${whereClause}
+      ORDER BY sd.created_at DESC 
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+    
+    // Add pagination parameters
+    const dataParams = [...params, limit, offset];
+    
+    // Execute data query
+    const result = await pool.query(dataQuery, dataParams);
+    
+    // Build and execute count query
+    const countQuery = `SELECT COUNT(*) ${baseQuery}${whereClause}`;
+    const countResult = await pool.query(countQuery, params);
+    const totalCount = parseInt(countResult.rows[0].count);
+    
+    logger.debug({
+      message: 'Retrieved scan detections',
+      domain,
+      count: result.rows.length,
+      totalCount
+    }, {
+      component: 'scan-controller',
+      event: 'scan_detections_retrieved'
+    });
+    
+    res.json({
+      status: 'success',
+      detections: result.rows,
+      pagination: {
+        total: totalCount,
+        limit,
+        offset,
+        has_more: totalCount > (offset + result.rows.length)
+      }
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error getting scan detections',
+      error: err,
+      domain: req.params.domain
+    }, {
+      component: 'scan-controller',
+      event: 'get_scan_detections_error'
     });
     res.status(500).json({ error: err.message });
   }

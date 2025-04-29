@@ -1,5 +1,5 @@
 export interface Detection {
-  type: 'anomaly' | 'signature';
+  type: 'anomaly' | 'signature' | string | string[];
   name: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   confidence: number;
@@ -147,7 +147,7 @@ export interface QuarantinedFile {
   file_size: number;
   file_type: string;
   file_hash: string | null;
-  detection_type: string;
+  detection_type: string | string[];
 }
 
 export interface QuarantineListResponse {
@@ -167,7 +167,7 @@ export interface QuarantineResponse {
   file_size?: number;
   file_type?: string;
   file_hash?: string | null;
-  detection_type?: string;
+  detection_type?: string | string[];
 }
 
 export interface QuarantineRestoreResponse {

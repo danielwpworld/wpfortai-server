@@ -158,7 +158,7 @@ export async function createScanDetection(websiteId: string | number, scanId: st
   file_path: string;
   threat_score: number;
   confidence: number;
-  detection_type: string;
+  detection_type: string | string[];
   severity: string;
   description: string;
   file_hash?: string;
@@ -328,7 +328,7 @@ export async function createQuarantinedDetection(detection: {
   file_size?: number;
   file_type?: string;
   file_hash?: string | null;
-  detection_type: string;
+  detection_type: string | string[];
 }) {
   try {
     const query = `
@@ -636,7 +636,7 @@ export async function handleScanDetectionVersioning(
         filePath,
         detectionData.threatScore || 0,
         detectionData.confidence || 0,
-        detectionData.detectionType || 'unknown',
+        Array.isArray(detectionData.detectionType) ? detectionData.detectionType : [detectionData.detectionType || 'unknown'],
         detectionData.severity || 'low',
         detectionData.description || '',
         detectionData.fileHash || null,
@@ -677,7 +677,7 @@ export async function handleScanDetectionVersioning(
         scanId,
         detectionData.threatScore || 0,
         detectionData.confidence || 0,
-        detectionData.detectionType || 'unknown',
+        Array.isArray(detectionData.detectionType) ? detectionData.detectionType : [detectionData.detectionType || 'unknown'],
         detectionData.severity || 'low',
         detectionData.description || '',
         detectionData.fileHash || null,
@@ -738,7 +738,7 @@ export async function handleScanDetectionVersioning(
       filePath,
       detectionData.threatScore || 0,
       detectionData.confidence || 0,
-      detectionData.detectionType || 'unknown',
+      Array.isArray(detectionData.detectionType) ? detectionData.detectionType : [detectionData.detectionType || 'unknown'],
       detectionData.severity || 'low',
       detectionData.description || '',
       detectionData.fileHash || null,

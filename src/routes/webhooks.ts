@@ -347,7 +347,7 @@ router.post('/scan-complete', async (req, res) => {
             file_path: file.file_path,
             threat_score: file.threat_score,
             confidence: file.confidence,
-            detection_type: detection.type,
+            detection_type: Array.isArray(detection.type) ? detection.type : [detection.type],
             severity: detection.severity,
             description: detection.description,
             file_hash: detection.file_hash,

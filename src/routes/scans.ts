@@ -273,6 +273,50 @@ router.get('/:domain/results/:scanId', async (req, res) => {
   }
 });
 
+// Get latest scan for a domain
+router.get('/:domain/latest-scan', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    // Query for the latest scan (order by started_at DESC)
+    const query = `
+      SELECT * FROM website_scans
+      WHERE website_id = $1
+      ORDER BY started_at DESC
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [website.id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No scans found for this domain' });
+    }
+    logger.debug({
+      message: 'Fetched latest scan for domain',
+      domain,
+      websiteId: website.id,
+      scan: result.rows[0]
+    }, {
+      component: 'scan-controller',
+      event: 'get_latest_scan'
+    });
+    res.json({ status: 'success', latest_scan: result.rows[0] });
+  } catch (error) {
+    logger.error({
+      message: 'Error fetching latest scan',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      domain: req.params.domain
+    }, {
+      component: 'scan-controller',
+      event: 'get_latest_scan_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get active scan for a domain
 router.get('/:domain/active', async (req, res) => {
   try {
@@ -365,22 +409,32 @@ router.post('/:domain/quarantine', async (req, res) => {
       WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
     await pool.query(updateQuery, [website.id, file_path, req.body.file_hash]);
 
-    // Insert into quarantined_detections for each detection
-    const insertPromises = detectionResult.rows.map(async (detection: any) => {
+    // Find the latest detection to use for the quarantined_detections entry
+    const latestDetectionQuery = `
+      SELECT * FROM scan_detections 
+      WHERE website_id = $1 AND file_path = $2 AND file_hash = $3
+      ORDER BY created_at DESC LIMIT 1`;
+    const latestResult = await pool.query(latestDetectionQuery, [website.id, file_path, req.body.file_hash]);
+    
+    if (latestResult.rows.length > 0) {
+      const latestDetection = latestResult.rows[0];
+      
+      // Insert only one entry into quarantined_detections for the latest detection
       await createQuarantinedDetection({
-        scan_detection_id: detection.id,
+        scan_detection_id: latestDetection.id,
         quarantine_id: result.quarantine_id,
-        original_path: detection.file_path,
+        original_path: latestDetection.file_path,
         quarantine_path: result.quarantine_path || 'unknown',
         timestamp: new Date(),
-        scan_finding_id: detection.scan_finding_id || null,
-        file_size: detection.file_size || 0,
-        file_type: detection.file_type || 'unknown',
-        file_hash: detection.file_hash || null,
-        detection_type: detection.detection_type ? (Array.isArray(detection.detection_type) ? detection.detection_type : [detection.detection_type]) : ['manual']
+        scan_finding_id: latestDetection.scan_finding_id || null,
+        file_size: latestDetection.file_size || 0,
+        file_type: latestDetection.file_type || 'unknown',
+        file_hash: latestDetection.file_hash || null,
+        detection_type: latestDetection.detection_type ? (Array.isArray(latestDetection.detection_type) ? latestDetection.detection_type : [latestDetection.detection_type]) : ['manual'],
+        confidence: latestDetection.confidence || 0,
+        threat_score: latestDetection.threat_score || 0
       });
-    });
-    await Promise.all(insertPromises);
+    }
 
     logger.info({
       message: 'File quarantined successfully',
@@ -515,8 +569,7 @@ router.post('/:domain/whitelist', async (req, res) => {
         domain,
         filePath: file_path,
         reason,
-        addedBy: added_by,
-        error: errorMsg
+        addedBy: added_by
       }, {
         component: 'whitelist-controller',
         event: 'whitelist_api_call_error'
@@ -538,9 +591,9 @@ router.post('/:domain/whitelist', async (req, res) => {
     const detection = detectionResult.rows[0];
     const insertQuery = `
       INSERT INTO whitelisted_detections (
-        website_id, scan_detection_id, file_path, file_hash, file_size, detection_type, reason, whitelisted_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-      ON CONFLICT (website_id, file_path) DO UPDATE SET reason = EXCLUDED.reason, whitelisted_at = NOW()
+        website_id, scan_detection_id, file_path, file_hash, file_size, detection_type, reason, whitelisted_at, confidence, threat_score
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
+      ON CONFLICT (website_id, file_path) DO UPDATE SET reason = EXCLUDED.reason, whitelisted_at = NOW(), confidence = EXCLUDED.confidence, threat_score = EXCLUDED.threat_score
       RETURNING *
     `;
     const insertValues = [
@@ -550,7 +603,9 @@ router.post('/:domain/whitelist', async (req, res) => {
       detection.file_hash,
       detection.file_size,
       detection.detection_type,
-      reason || null
+      reason || null,
+      detection.confidence || 0,
+      detection.threat_score || 0
     ];
     const whitelistedRes = await pool.query(insertQuery, insertValues);
     const whitelisted = whitelistedRes.rows[0];
@@ -714,40 +769,58 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
     });
 
     // Enhanced restore logic: For each quarantine_id, mark all related scan_detections as 'active' and remove all corresponding quarantined_detections
+    // Track if any DB error occurs
+    let dbErrorOccurred = false;
+    let dbErrorDetails: any = null;
     for (const id of ids) {
       try {
-        // Get the quarantined detection record (to access file_path, file_hash, website_id)
+        // Get the quarantined detection record
         const getQuery = `SELECT * FROM quarantined_detections WHERE quarantine_id = $1`;
         const getResult = await pool.query(getQuery, [id]);
         if (getResult.rows.length === 0) continue;
         const qd = getResult.rows[0];
-        // Update all scan_detections for this website, file_path, and file_hash to 'active'
-        const updateQuery = `UPDATE scan_detections SET status = 'active' WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
-        await pool.query(updateQuery, [qd.website_id, qd.original_path, qd.file_hash]);
-        // Remove all corresponding quarantined_detections
-        const deleteQuery = `DELETE FROM quarantined_detections WHERE website_id = $1 AND original_path = $2 AND file_hash = $3`;
-        await pool.query(deleteQuery, [qd.website_id, qd.original_path, qd.file_hash]);
+        
+        // If we have a scan_detection_id, update its status to 'active'
+        if (qd.scan_detection_id) {
+          const updateQuery = `UPDATE scan_detections SET status = 'active' WHERE id = $1`;
+          await pool.query(updateQuery, [qd.scan_detection_id]);
+        }
+        
+        // Remove the quarantined detection by quarantine_id
+        const deleteQuery = `DELETE FROM quarantined_detections WHERE quarantine_id = $1`;
+        await pool.query(deleteQuery, [id]);
+        
         logger.debug({
-          message: 'Restored all matching scan detections and removed quarantined detections',
+          message: 'Restored scan detection and removed quarantined detection',
           quarantineId: id,
-          websiteId: qd.website_id,
+          scanDetectionId: qd.scan_detection_id,
           filePath: qd.original_path,
           fileHash: qd.file_hash
         }, {
           component: 'scan-controller',
-          event: 'restore_all_from_quarantine'
+          event: 'restore_from_quarantine'
         });
       } catch (dbError) {
-        const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
+        dbErrorOccurred = true;
+        dbErrorDetails = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
         logger.error({
-          message: 'Failed to restore all matching scan detections or remove quarantined detections',
-          error: err,
+          message: 'Failed to restore scan detection or remove quarantined detection',
+          error: dbErrorDetails,
           quarantineId: id
         }, {
           component: 'scan-controller',
-          event: 'restore_all_from_quarantine_error'
+          event: 'restore_from_quarantine_error'
         });
+        break; // Stop processing further if any error occurs
       }
+    }
+
+    if (dbErrorOccurred) {
+      return res.status(500).json({
+        message: 'Failed to restore all matching scan detections or remove quarantined detections',
+        error: dbErrorDetails?.message || 'Unknown error',
+        quarantineIds: ids
+      });
     }
 
     // Now restore the file(s) via the WPSec API
@@ -933,7 +1006,9 @@ router.post('/:domain/batch-operation', async (req, res) => {
             file_size: detection.file_size || 0,
             file_type: detection.file_type || 'unknown',
             file_hash: detection.file_hash || null,
-            detection_type: detection.detection_type ? (Array.isArray(detection.detection_type) ? detection.detection_type : [detection.detection_type]) : ['batch']
+            detection_type: detection.detection_type ? (Array.isArray(detection.detection_type) ? detection.detection_type : [detection.detection_type]) : ['batch'],
+            confidence: detection.confidence || 0,
+            threat_score: detection.threat_score || 0
           });
         }
         logger.info({
@@ -985,8 +1060,8 @@ router.post('/:domain/batch-operation', async (req, res) => {
         // Insert into deleted_detections for each
         for (const detection of detectionResult.rows) {
           await pool.query(
-            `INSERT INTO deleted_detections (scan_detection_id, file_path, timestamp) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-            [detection.id, filePath, new Date()]
+            `INSERT INTO deleted_detections (scan_detection_id, file_path, timestamp, confidence, threat_score) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+            [detection.id, filePath, new Date(), detection.confidence || 0, detection.threat_score || 0]
           );
         }
         logger.info({
@@ -1240,49 +1315,100 @@ router.post('/:domain/batch-operation', async (req, res) => {
         if (!scanDetectionId) continue;
         
         try {
-          // Update scan detection status to deleted
+          // First, get the file_path and file_hash for this detection
           const detectionId = typeof scanDetectionId === 'string'
             ? parseInt(scanDetectionId, 10)
             : scanDetectionId;
+          
+          // Get the detection details
+          const detectionQuery = `
+            SELECT * FROM scan_detections WHERE id = $1
+          `;
+          const detectionResult = await pool.query(detectionQuery, [detectionId]);
+          
+          if (detectionResult.rows.length === 0) {
+            logger.warn({
+              message: 'Scan detection not found for batch delete operation',
+              scanDetectionId: detectionId
+            }, {
+              component: 'scan-controller',
+              event: 'batch_delete_detection_not_found'
+            });
+            continue;
+          }
+          
+          const detection = detectionResult.rows[0];
+          const filePath = detection.file_path;
+          const fileHash = detection.file_hash;
+          const websiteId = detection.website_id;
+          
+          if (!filePath || !fileHash || !websiteId) {
+            logger.warn({
+              message: 'Missing required fields for batch delete operation',
+              scanDetectionId: detectionId,
+              filePath,
+              fileHash,
+              websiteId
+            }, {
+              component: 'scan-controller',
+              event: 'batch_delete_missing_fields'
+            });
+            continue;
+          }
+          
+          // Mark all detections with the same file_path and file_hash as deleted
           logger.debug({
-            message: 'Marking scan detection as deleted',
-            scanDetectionId: detectionId
+            message: 'Marking all matching scan detections as deleted',
+            websiteId,
+            filePath,
+            fileHash
           }, {
             component: 'scan-controller',
-            event: 'pre_update_detection_status'
+            event: 'batch_delete_mark_all'
           });
-          const updated = await updateScanDetectionStatus(detectionId, 'deleted');
-          logger.debug({
-            message: 'Updated scan detection status',
-            scanDetectionId: updated.id ?? detectionId,
-            status: updated.status
-          }, {
-            component: 'scan-controller',
-            event: 'update_detection_status'
-          });
-
-          // Create a record in deleted_detections
-          const filePath = files[i]?.file_path;
-          if (filePath) {
+          
+          // Update all matching scan_detections to 'deleted'
+          const updateQuery = `
+            UPDATE scan_detections 
+            SET status = 'deleted' 
+            WHERE website_id = $1 AND file_path = $2 AND file_hash = $3
+          `;
+          await pool.query(updateQuery, [websiteId, filePath, fileHash]);
+          
+          // Find the latest detection to use for the deleted_detections entry
+          const latestDetectionQuery = `
+            SELECT * FROM scan_detections 
+            WHERE website_id = $1 AND file_path = $2 AND file_hash = $3
+            ORDER BY created_at DESC LIMIT 1
+          `;
+          const latestResult = await pool.query(latestDetectionQuery, [websiteId, filePath, fileHash]);
+          
+          if (latestResult.rows.length > 0) {
+            const latestDetection = latestResult.rows[0];
+            
+            // Create a record in deleted_detections for the latest detection
             const insertQuery = `
               INSERT INTO deleted_detections (
-                scan_detection_id, file_path, timestamp
-              ) VALUES ($1, $2, $3)
+                scan_detection_id, file_path, timestamp, confidence, threat_score
+              ) VALUES ($1, $2, $3, $4, $5)
               RETURNING id
             `;
             
             const insertValues = [
-              scanDetectionId,
+              latestDetection.id,
               filePath,
-              new Date()
+              new Date(),
+              latestDetection.confidence || 0,
+              latestDetection.threat_score || 0
             ];
             
             const insertResult = await pool.query(insertQuery, insertValues);
             
             logger.debug({
-              message: 'Created deleted detection record in batch operation',
-              scanDetectionId,
+              message: 'Created deleted detection record for latest detection',
+              scanDetectionId: latestDetection.id,
               filePath,
+              fileHash,
               deletedDetectionId: insertResult.rows[0].id
             }, {
               component: 'scan-controller',
@@ -1293,7 +1419,7 @@ router.post('/:domain/batch-operation', async (req, res) => {
           // Ensure dbError is always an Error object
           const err = dbError instanceof Error ? dbError : new Error(String(dbError) || 'Unknown error');
           logger.error({
-            message: 'Failed to update scan detection status or create deleted detection in batch operation',
+            message: 'Failed to update scan detections or create deleted detection in batch operation',
             error: err,
             scanDetectionId
           }, {
@@ -1457,8 +1583,8 @@ router.post('/:domain/delete', async (req, res) => {
         // Insert into deleted_detections for each
         for (const detection of detectionResult.rows) {
           await pool.query(
-            `INSERT INTO deleted_detections (scan_detection_id, file_path, timestamp) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-            [detection.id, file_path, new Date()]
+            `INSERT INTO deleted_detections (scan_detection_id, file_path, timestamp, confidence, threat_score) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+            [detection.id, file_path, new Date(), detection.confidence || 0, detection.threat_score || 0]
           );
         }
         logger.info({
@@ -1495,11 +1621,27 @@ router.post('/:domain/delete', async (req, res) => {
           // Create a record in deleted_detections
           const insertQuery = `
             INSERT INTO deleted_detections (
-              scan_detection_id, file_path, timestamp
-            ) VALUES ($1, $2, $3)
+              scan_detection_id, file_path, timestamp, confidence, threat_score
+            ) VALUES ($1, $2, $3, $4, $5)
             RETURNING id
           `;
-          const insertValues = [scan_detection_id, file_path, new Date()];
+          // Fetch confidence/threat_score from scan_detections if not defined
+          let conf: number | undefined = undefined;
+          let ts: number | undefined = undefined;
+          if (conf === undefined || ts === undefined) {
+            const detectionRes = await pool.query(
+              `SELECT confidence, threat_score FROM scan_detections WHERE id = $1`,
+              [scan_detection_id]
+            );
+            if (detectionRes.rows.length > 0) {
+              conf = detectionRes.rows[0].confidence || 0;
+              ts = detectionRes.rows[0].threat_score || 0;
+            } else {
+              conf = 0;
+              ts = 0;
+            }
+          }
+          const insertValues = [scan_detection_id, file_path, new Date(), conf, ts];
           const insertResult = await pool.query(insertQuery, insertValues);
           logger.debug({
             message: 'Created deleted detection record',
@@ -1633,7 +1775,22 @@ router.get('/:domain/detections', async (req, res) => {
     // Build the full data query
     const dataQuery = `
       SELECT 
-        sd.*,
+        sd.id,
+        sd.website_id,
+        sd.scan_id,
+        sd.file_path,
+        sd.threat_score,
+        sd.confidence,
+        sd.detection_type,
+        sd.severity,
+        sd.description,
+        sd.file_hash,
+        sd.file_size,
+        sd.context_type,
+        sd.risk_level,
+        sd.version_number,
+        sd.created_at,
+        sd.status,
         ws.scan_id as website_scan_id,
         ws.started_at as scan_started_at,
         ws.completed_at as scan_completed_at,
@@ -1684,14 +1841,27 @@ router.get('/:domain/detections', async (req, res) => {
       event: 'scan_detections_retrieved'
     });
     
+    // Ensure detection_type is always an array of strings
+    const detections = result.rows.map((row: any) => {
+      // If detection_type is null, undefined, or not an array, normalize it
+      if (!Array.isArray(row.detection_type)) {
+        if (typeof row.detection_type === 'string' && row.detection_type.length > 0) {
+          row.detection_type = [row.detection_type];
+        } else {
+          row.detection_type = [];
+        }
+      }
+      return row;
+    });
+
     res.json({
       status: 'success',
-      detections: result.rows,
+      detections,
       pagination: {
         total: totalCount,
         limit,
         offset,
-        has_more: totalCount > (offset + result.rows.length)
+        has_more: totalCount > (offset + detections.length)
       }
     });
   } catch (error) {

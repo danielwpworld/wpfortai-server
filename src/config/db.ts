@@ -329,15 +329,29 @@ export async function createQuarantinedDetection(detection: {
   file_type?: string;
   file_hash?: string | null;
   detection_type: string | string[];
+  confidence?: number;
+  threat_score?: number;
 }) {
   try {
     const query = `
       INSERT INTO quarantined_detections (
-        scan_detection_id, quarantine_id, original_path, quarantine_path, timestamp,
-        scan_finding_id, file_size, file_type, file_hash, detection_type
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id
+        scan_detection_id, quarantine_id, original_path, quarantine_path, timestamp, scan_finding_id, file_size, file_type, file_hash, detection_type, confidence, threat_score
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING *
     `;
+
+    // Normalize detection_type to a proper PostgreSQL array format
+    let normalizedDetectionType;
+    if (Array.isArray(detection.detection_type)) {
+      // Format as PostgreSQL array: '{val1,val2,val3}'
+      normalizedDetectionType = `{${detection.detection_type.map(type => `"${type}"`).join(',')}}`;  
+    } else if (typeof detection.detection_type === 'string') {
+      // If it's a single string, convert to a single-element array
+      normalizedDetectionType = `{"${detection.detection_type}"}`;  
+    } else {
+      // Default to an empty array if undefined or null
+      normalizedDetectionType = '{}'; 
+    }
 
     const values = [
       detection.scan_detection_id,
@@ -349,7 +363,9 @@ export async function createQuarantinedDetection(detection: {
       detection.file_size || 0,
       detection.file_type || 'unknown',
       detection.file_hash || null,
-      detection.detection_type
+      normalizedDetectionType,
+      detection.confidence || 0,
+      detection.threat_score || 0
     ];
 
     const result = await pool.query(query, values);

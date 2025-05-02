@@ -3,6 +3,7 @@ import sitesRouter from './sites';
 import scansRouter from './scans';
 import firewallRouter from './firewall';
 import backupsRouter from './backups';
+import filesRouter from './files';
 
 import webhooksRouter from './webhooks';
 import webhookSecretsRouter from './webhook-secrets';
@@ -19,6 +20,7 @@ router.use('/sites', sitesRouter);
 router.use('/scans', scansRouter);
 router.use('/firewall', firewallRouter);
 router.use('/backups', backupsRouter);
+router.use('/files', filesRouter);
 
 router.use('/webhooks', webhooksRouter);
 router.use('/webhook-secrets', webhookSecretsRouter);

@@ -73,18 +73,19 @@ model Website {
 }
 
 model WebsiteScan {
-  id                 Int             @id @default(autoincrement())
-  websiteId          String          @map("website_id") @db.Uuid
-  completedAt        DateTime?       @map("completed_at") @db.Timestamptz
-  durationSeconds    Int?            @map("duration_seconds")
-  createdAt          DateTime?       @default(now()) @map("created_at") @db.Timestamptz
-  infectedFilesCount Int?            @map("infected_files_count")
-  totalFilesCount    Int?            @map("total_files_count")
-  startedAt          DateTime?       @map("started_at") @db.Timestamptz
-  scanId             String          @unique @map("scan_id") @db.VarChar
-  status             String?         @db.VarChar
-  errorMessage       String?         @map("error_message") @db.Text
-  website            Website         @relation(fields: [websiteId], references: [id])
+  id                 Int       @id @default(autoincrement())
+  websiteId          String    @map("website_id") @db.Uuid
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+  durationSeconds    Int?      @map("duration_seconds")
+  createdAt          DateTime? @default(now()) @map("created_at") @db.Timestamptz
+  infectedFilesCount Int?      @map("infected_files_count")
+  totalFilesCount    Int?      @map("total_files_count")
+  startedAt          DateTime? @map("started_at") @db.Timestamptz
+  scanId             String    @unique @map("scan_id") @db.VarChar
+  status             String?   @db.VarChar
+  errorMessage       String?   @map("error_message") @db.Text
+
+  website            Website   @relation(fields: [websiteId], references: [id])
   detections         ScanDetection[]
 
   @@index([websiteId])

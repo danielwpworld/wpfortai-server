@@ -66,13 +66,17 @@ export class WPSecAPI {
     const url = new URL(baseUrl);
     url.searchParams.append('wpsec_endpoint', endpoint);
 
-
-
     const fetchFn = await initFetch();
-  const response = await fetchFn(url.toString(), requestOptions);
+    const response = await fetchFn(url.toString(), requestOptions);
 
     if (!response.ok) {
-      throw new Error(`WPSec API error: ${response.statusText}`);
+      try {
+        const errorText = await response.text();
+        console.error(`WPSec API error (${response.status} ${response.statusText}): ${errorText}`);
+        throw new Error(`WPSec API error: ${response.statusText} - ${errorText}`);
+      } catch (textError) {
+        throw new Error(`WPSec API error: ${response.statusText}`);
+      }
     }
 
     return response.json() as Promise<T>;
@@ -191,6 +195,18 @@ export class WPSecAPI {
         reason,
         added_by: addedBy
       }
+    });
+  }
+
+  /**
+   * Inspect a file to get detailed information and potential detections
+   * @param filePath Path to the file to inspect
+   * @returns Detailed file information including detections if any are found
+   */
+  async inspectFile(filePath: string): Promise<any> {
+    return this.request('inspect-file', {
+      method: 'POST',
+      body: { file_path: filePath }
     });
   }
 

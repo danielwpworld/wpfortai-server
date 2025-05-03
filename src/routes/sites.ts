@@ -42,9 +42,12 @@ router.get('/:domain/info', async (req, res) => {
     logger.info({
       message: 'Site information retrieved',
       domain,
-      wpVersion: (info as any).wp_version,
-      totalPlugins: (info as any).plugins?.length || 0,
-      totalThemes: (info as any).themes?.length || 0
+      wpVersion: info.wordpress.version,
+      totalPlugins: info.plugins.total_count,
+      totalThemes: info.themes.total_count,
+      isMultisite: info.wordpress.is_multisite,
+      isSSL: info.wordpress.is_ssl,
+      phpVersion: info.server.php_version
     }, {
       component: 'sites-controller',
       event: 'site_info_retrieved'

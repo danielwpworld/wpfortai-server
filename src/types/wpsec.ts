@@ -69,18 +69,33 @@ export interface ScanStartResponse {
 }
 
 export interface SiteInfo {
-  domain: string;
-  wpVersion: string;
-  plugins: Array<{
-    name: string;
+  wordpress: {
     version: string;
-    active: boolean;
-  }>;
-  themes: Array<{
-    name: string;
-    version: string;
-    active: boolean;
-  }>;
+    site_url: string;
+    domain: string;
+    is_multisite: boolean;
+    is_ssl: boolean;
+    auth_code: string;
+  };
+  themes: {
+    active_theme: {
+      name: string;
+      version: string;
+    };
+    total_count: number;
+  };
+  plugins: {
+    total_count: number;
+    active_count: number;
+  };
+  server: {
+    php_version: string;
+    server_software: string;
+    database_version: string;
+    memory_limit: string;
+    wp_memory_limit: string;
+  };
+  timestamp: string;
 }
 
 export interface Vulnerability {

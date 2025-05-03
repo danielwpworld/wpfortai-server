@@ -291,7 +291,19 @@ router.get('/:domain/latest-scan', async (req, res) => {
     `;
     const result = await pool.query(query, [website.id]);
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'No scans found for this domain' });
+      logger.debug({
+        message: 'No scans found for domain',
+        domain,
+        websiteId: website.id
+      }, {
+        component: 'scan-controller',
+        event: 'no_scans_found'
+      });
+      return res.json({ 
+        status: 'success', 
+        message: 'No scans performed yet',
+        latest_scan: null 
+      });
     }
     logger.debug({
       message: 'Fetched latest scan for domain',

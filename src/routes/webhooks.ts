@@ -341,20 +341,68 @@ router.post('/scan-complete', async (req, res) => {
 
     // Store detections in database if results were fetched successfully
     if (results && results.infected_files) {
+      // Count total detections
+      let totalDetections = 0;
       for (const file of results.infected_files) {
-        for (const detection of file.detections) {
-          await createScanDetection(website.id, scan_id, {
-            file_path: file.file_path,
-            threat_score: file.threat_score,
-            confidence: file.confidence,
-            detection_type: Array.isArray(detection.type) ? detection.type : [detection.type],
-            severity: detection.severity,
-            description: detection.description,
-            file_hash: detection.file_hash,
-            file_size: file.file_size,
-            context_type: file.context.type,
-            risk_level: file.context.risk_level
-          });
+        totalDetections += file.detections.length;
+      }
+      
+      logger.info({
+        message: 'Processing scan detections',
+        scanId: scan_id,
+        domain: scanData.domain,
+        infectedFilesCount: results.infected_files.length,
+        totalDetections
+      });
+      
+      // Use batch insert for large numbers of detections
+      if (totalDetections > 10) {
+        // Prepare all detections for batch insert
+        const allDetections = [];
+        for (const file of results.infected_files) {
+          for (const detection of file.detections) {
+            allDetections.push({
+              file_path: file.file_path,
+              threat_score: file.threat_score,
+              confidence: file.confidence,
+              detection_type: Array.isArray(detection.type) ? detection.type : [detection.type],
+              severity: detection.severity,
+              description: detection.description,
+              file_hash: detection.file_hash,
+              file_size: file.file_size,
+              context_type: file.context.type,
+              risk_level: file.context.risk_level
+            });
+          }
+        }
+        
+        // Import the batch function and execute it
+        const { batchCreateScanDetections } = await import('../config/db');
+        await batchCreateScanDetections(String(website.id), scan_id, allDetections, 500);
+        
+        logger.info({
+          message: 'Batch processed scan detections',
+          scanId: scan_id,
+          domain: scanData.domain,
+          detectionCount: allDetections.length
+        });
+      } else {
+        // For small numbers, use the original approach for better versioning support
+        for (const file of results.infected_files) {
+          for (const detection of file.detections) {
+            await createScanDetection(website.id, scan_id, {
+              file_path: file.file_path,
+              threat_score: file.threat_score,
+              confidence: file.confidence,
+              detection_type: Array.isArray(detection.type) ? detection.type : [detection.type],
+              severity: detection.severity,
+              description: detection.description,
+              file_hash: detection.file_hash,
+              file_size: file.file_size,
+              context_type: file.context.type,
+              risk_level: file.context.risk_level
+            });
+          }
         }
       }
     }

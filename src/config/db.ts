@@ -982,4 +982,145 @@ export async function updateNetworkStatus(
   }
 }
 
+/**
+ * Create multiple scan detections in a single database operation
+ * This is much more efficient than creating detections one by one
+ * @param websiteId The UUID of the website
+ * @param scanId The scan ID
+ * @param detections Array of detection objects
+ * @param batchSize Maximum number of detections to insert in a single query (default: 500)
+ * @returns Array of created detection IDs
+ */
+export async function batchCreateScanDetections(
+  websiteId: string,
+  scanId: string,
+  detections: Array<{
+    file_path: string;
+    threat_score: number;
+    confidence: number;
+    detection_type: string | string[];
+    severity: string;
+    description: string;
+    file_hash?: string;
+    file_size: number;
+    context_type: string;
+    risk_level: string;
+  }>,
+  batchSize = 500
+): Promise<number[]> {
+  if (!detections.length) {
+    return [];
+  }
+
+  try {
+    logger.debug({
+      message: 'Batch creating scan detections',
+      websiteId,
+      scanId,
+      detectionCount: detections.length,
+      batchSize
+    }, {
+      component: 'database',
+      event: 'batch_create_detections'
+    });
+
+    const createdIds: number[] = [];
+    
+    // Process in batches to avoid exceeding query size limits
+    for (let i = 0; i < detections.length; i += batchSize) {
+      const batch = detections.slice(i, i + batchSize);
+      
+      // Build the query parts
+      let valuesSql: string[] = [];
+      const params: any[] = [];
+      let paramIndex = 1;
+      
+      for (const detection of batch) {
+        // Format detection_type as a PostgreSQL array string
+        const detectionType = Array.isArray(detection.detection_type) 
+          ? detection.detection_type 
+          : [detection.detection_type || 'unknown'];
+          
+        const normalizedDetectionType = `{${detectionType.map(type => `"${type}"`).join(',')}}`;  
+        
+        // Add values placeholder for this detection
+        valuesSql.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
+        
+        // Add parameter values in the same order
+        params.push(
+          websiteId,
+          scanId,
+          detection.file_path,
+          detection.threat_score || 0,
+          detection.confidence || 0,
+          normalizedDetectionType,
+          detection.severity || 'low',
+          detection.description || '',
+          detection.file_hash || null,
+          detection.file_size || 0,
+          detection.context_type || 'unknown',
+          detection.risk_level || 'low',
+          'active', // status
+          1 // version_number (all new detections start at version 1)
+        );
+      }
+      
+      // Construct the full query
+      const query = `
+        INSERT INTO scan_detections (
+          website_id, scan_id, file_path, threat_score, confidence, 
+          detection_type, severity, description, file_hash, file_size, 
+          context_type, risk_level, status, version_number
+        ) VALUES 
+        ${valuesSql.join(', ')}
+        RETURNING id
+      `;
+      
+      // Execute the batch insert
+      const result = await pool.query(query, params);
+      
+      // Collect the created IDs
+      const ids = result.rows.map(row => row.id);
+      createdIds.push(...ids);
+      
+      logger.debug({
+        message: 'Batch insert completed',
+        batchSize: batch.length,
+        createdCount: ids.length,
+        batchNumber: Math.floor(i / batchSize) + 1,
+        totalBatches: Math.ceil(detections.length / batchSize)
+      }, {
+        component: 'database',
+        event: 'batch_insert_completed'
+      });
+    }
+    
+    logger.info({
+      message: 'Batch creation of scan detections completed',
+      websiteId,
+      scanId,
+      totalDetections: detections.length,
+      createdCount: createdIds.length
+    }, {
+      component: 'database',
+      event: 'batch_create_detections_completed'
+    });
+    
+    return createdIds;
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error batch creating scan detections',
+      error: err,
+      websiteId,
+      scanId,
+      detectionCount: detections.length
+    }, {
+      component: 'database',
+      event: 'batch_create_detections_error'
+    });
+    throw err;
+  }
+}
+
 export default pool;

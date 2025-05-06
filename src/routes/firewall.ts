@@ -218,6 +218,24 @@ router.post('/:domain/whitelist', async (req, res) => {
 
     await api.whitelistFirewallIP(ip, action);
 
+    // Update the network_status field in website_data
+    try {
+      const { updateNetworkStatus } = await import('../config/db');
+      await updateNetworkStatus(String(website.id), ip, 'whitelist', action);
+    } catch (updateError) {
+      logger.warn({
+        message: 'Failed to update network_status, but whitelist was updated',
+        domain,
+        ip,
+        action,
+        error: updateError
+      }, {
+        component: 'firewall-controller',
+        event: 'whitelist_network_status_update_failed'
+      });
+      // Continue since the primary operation succeeded
+    }
+
     logger.info({
       message: `IP ${action === 'add' ? 'added to' : 'removed from'} whitelist`,
       domain,
@@ -240,6 +258,100 @@ router.post('/:domain/whitelist', async (req, res) => {
     }, {
       component: 'firewall-controller',
       event: 'whitelist_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Manage firewall blocklist
+ * POST /:domain/blocklist
+ * Body: { action: 'block' | 'unblock', ip: string }
+ */
+router.post('/:domain/blocklist', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const { ip, action } = req.body;
+
+    if (!ip || !action || !['block', 'unblock'].includes(action)) {
+      return res.status(400).json({ 
+        error: 'Invalid request. Required parameters: ip and action (block or unblock)' 
+      });
+    }
+
+    logger.debug({
+      message: 'Managing firewall blocklist',
+      domain,
+      ip,
+      action
+    }, {
+      component: 'firewall-controller',
+      event: 'blocklist_request'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+
+    // Block/unblock IP
+    logger.debug({
+      message: 'Sending blocklist request to WPSec API',
+      domain,
+      ip,
+      action
+    }, {
+      component: 'firewall-controller',
+      event: 'blocklist_request'
+    });
+
+    await api.blocklistFirewallIP(ip, action);
+
+    // Update the network_status field in website_data
+    try {
+      const { updateNetworkStatus } = await import('../config/db');
+      await updateNetworkStatus(String(website.id), ip, 'blocklist', action);
+    } catch (updateError) {
+      logger.warn({
+        message: 'Failed to update network_status, but blocklist was updated',
+        domain,
+        ip,
+        action,
+        error: updateError
+      }, {
+        component: 'firewall-controller',
+        event: 'blocklist_network_status_update_failed'
+      });
+      // Continue since the primary operation succeeded
+    }
+
+    logger.info({
+      message: `IP ${action === 'block' ? 'blocked' : 'unblocked'} successfully`,
+      domain,
+      ip,
+      action
+    }, {
+      component: 'firewall-controller',
+      event: 'blocklist_updated'
+    });
+
+    res.json({ success: true });
+  } catch (error: any) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error managing firewall blocklist',
+      error,
+      domain: errorDomain,
+      ip: req.body.ip,
+      action: req.body.action
+    }, {
+      component: 'firewall-controller',
+      event: 'blocklist_error'
     });
     const err = error instanceof Error ? error : new Error('Unknown error');
     res.status(500).json({ error: err.message });

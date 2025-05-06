@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import type { SiteInfo, Vulnerability, CoreIntegrityResult } from '../types/wpsec';
 import { getWebsiteByDomain } from '../config/db';
+import pool from '../config/db';
 import { logger } from '../services/logger';
 
 const router = Router();
@@ -178,6 +179,196 @@ router.get('/:domain/core-check', async (req, res) => {
     }, {
       component: 'sites-controller',
       event: 'core_check_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Transfer website ownership
+router.post('/:domain/transfer-ownership', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const { newOwnerUid } = req.body;
+
+    if (!newOwnerUid) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: newOwnerUid is required' 
+      });
+    }
+
+    logger.debug({
+      message: 'Transferring website ownership',
+      domain,
+      newOwnerUid
+    }, {
+      component: 'sites-controller',
+      event: 'transfer_ownership_request'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      logger.warn({
+        message: 'Website not found',
+        domain
+      }, {
+        component: 'sites-controller',
+        event: 'transfer_ownership_not_found'
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // The database schema uses UUID for website.id and uid for the owner
+    const websiteId = website.id;
+    // TypeScript doesn't know about the uid field in the Website interface from db.ts
+    // but we know it exists in the actual database based on the Prisma schema
+    const currentOwnerUid = (website as any).uid || (website as any).user_id;
+
+    // Verify the new owner exists
+    const userQuery = `SELECT uid FROM users WHERE uid = $1`;
+    const userResult = await pool.query(userQuery, [newOwnerUid]);
+    
+    if (userResult.rows.length === 0) {
+      logger.warn({
+        message: 'New owner not found',
+        newOwnerUid
+      }, {
+        component: 'sites-controller',
+        event: 'transfer_ownership_invalid_user'
+      });
+      return res.status(404).json({ error: 'New owner not found' });
+    }
+
+    // Begin transaction
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Update website ownership
+      const updateQuery = `
+        UPDATE websites 
+        SET uid = $1, updated_at = NOW() 
+        WHERE id = $2 AND uid = $3
+        RETURNING id, domain, uid
+      `;
+      const updateResult = await client.query(updateQuery, [newOwnerUid, websiteId, currentOwnerUid]);
+      
+      if (updateResult.rows.length === 0) {
+        throw new Error('Failed to update website ownership');
+      }
+
+      const updatedWebsite = updateResult.rows[0];
+
+      // Create a transfer record
+      const transferQuery = `
+        INSERT INTO website_transfers (website_id, uid, domain, created_at, updated_at)
+        VALUES ($1, $2, $3, NOW(), NOW())
+        RETURNING id
+      `;
+      await client.query(transferQuery, [websiteId, newOwnerUid, domain]);
+
+      await client.query('COMMIT');
+
+      logger.info({
+        message: 'Website ownership transferred successfully',
+        websiteId,
+        domain,
+        previousOwner: currentOwnerUid,
+        newOwner: newOwnerUid
+      }, {
+        component: 'sites-controller',
+        event: 'transfer_ownership_success'
+      });
+
+      res.json({ 
+        status: 'success', 
+        message: 'Website ownership transferred successfully',
+        website: {
+          id: websiteId,
+          domain,
+          owner: newOwnerUid
+        }
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    logger.error({
+      message: 'Error transferring website ownership',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      websiteId: req.body.websiteId
+    }, {
+      component: 'sites-controller',
+      event: 'transfer_ownership_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Check the health of the WPSec plugin on the site
+ * GET /:domain/health
+ * Returns plugin status information including active state and version
+ */
+router.get('/:domain/health', async (req, res) => {
+  try {
+    const { domain } = req.params;
+
+    logger.debug({
+      message: 'Checking site health',
+      domain
+    }, {
+      component: 'sites-controller',
+      event: 'check_site_health'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+
+    // Get health status
+    logger.debug({
+      message: 'Pinging WPSec plugin',
+      domain
+    }, {
+      component: 'sites-controller',
+      event: 'ping_wpsec_plugin'
+    });
+
+    const result = await api.ping();
+
+    logger.info({
+      message: 'Site health check completed',
+      domain,
+      pluginActive: result.data.plugin_active,
+      pluginVersion: result.data.plugin_version
+    }, {
+      component: 'sites-controller',
+      event: 'site_health_check_completed'
+    });
+
+    res.json(result);
+  } catch (error) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error checking site health',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      domain: errorDomain
+    }, {
+      component: 'sites-controller',
+      event: 'site_health_check_error'
     });
     const err = error instanceof Error ? error : new Error('Unknown error');
     res.status(500).json({ error: err.message });

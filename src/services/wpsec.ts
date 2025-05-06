@@ -142,6 +142,18 @@ export class WPSecAPI {
     });
   }
 
+  /**
+   * Block or unblock an IP address or CIDR range in the firewall
+   * @param ip IP address or CIDR range to block/unblock
+   * @param action Whether to block or unblock the IP
+   */
+  async blocklistFirewallIP(ip: string, action: 'block' | 'unblock'): Promise<void> {
+    return this.request('firewall/blocklist', {
+      method: 'POST',
+      body: { ip, action }
+    });
+  }
+
   // Backup Management
   async startBackup(type: string, incremental?: boolean): Promise<{ backup_id: string }> {
     return this.request<{ backup_id: string }>('backup/start', {
@@ -208,6 +220,20 @@ export class WPSecAPI {
       method: 'POST',
       body: { file_path: filePath }
     });
+  }
+
+  /**
+   * Check the health of the WPSec plugin on the site
+   * @returns Plugin status information including active state and version
+   */
+  async ping(): Promise<{
+    success: boolean;
+    data: {
+      plugin_active: boolean;
+      plugin_version: string;
+    };
+  }> {
+    return this.request('ping');
   }
 
   async getWhitelistedFiles(includeDetails?: boolean, verifyIntegrity?: boolean): Promise<WhitelistedFile[]> {

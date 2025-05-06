@@ -878,4 +878,108 @@ export async function updateWebsiteScanResult(websiteId: string | number, scanId
   }
 }
 
+/**
+ * Updates the network_status field in the website_data table after whitelist/blocklist changes
+ * @param websiteId The UUID of the website
+ * @param ip The IP address that was added or removed
+ * @param listType The type of list (whitelist or blocklist)
+ * @param action The action performed (add/remove for whitelist, block/unblock for blocklist)
+ */
+export async function updateNetworkStatus(
+  websiteId: string,
+  ip: string,
+  listType: 'whitelist' | 'blocklist',
+  action: 'add' | 'remove' | 'block' | 'unblock'
+): Promise<void> {
+  try {
+    logger.debug({
+      message: 'Updating network_status after IP list change',
+      websiteId,
+      ip,
+      listType,
+      action
+    }, {
+      component: 'database',
+      event: 'update_network_status'
+    });
+
+    // First, check if website_data record exists
+    const checkQuery = `
+      SELECT id, network_status FROM website_data 
+      WHERE website_id = $1
+    `;
+    const checkResult = await pool.query(checkQuery, [websiteId]);
+    
+    if (checkResult.rows.length === 0) {
+      logger.debug({
+        message: 'No website_data record found, will be created by background job',
+        websiteId
+      }, {
+        component: 'database',
+        event: 'update_network_status_no_record'
+      });
+      return;
+    }
+
+    const networkStatus = checkResult.rows[0].network_status || {};
+    
+    // Map action to the appropriate list and operation
+    let listKey: string;
+    let operation: 'add' | 'remove';
+    
+    if (listType === 'whitelist') {
+      listKey = 'whitelisted_ips';
+      operation = action as 'add' | 'remove';
+    } else { // blocklist
+      listKey = 'blocklisted_ips';
+      operation = action === 'block' ? 'add' : 'remove';
+    }
+
+    // Ensure the list exists
+    if (!networkStatus[listKey]) {
+      networkStatus[listKey] = [];
+    }
+
+    // Update the list
+    if (operation === 'add' && !networkStatus[listKey].includes(ip)) {
+      networkStatus[listKey].push(ip);
+    } else if (operation === 'remove') {
+      networkStatus[listKey] = networkStatus[listKey].filter((item: string) => item !== ip);
+    }
+
+    // Update the database
+    const updateQuery = `
+      UPDATE website_data 
+      SET network_status = $1, 
+          fetched_at = NOW() 
+      WHERE website_id = $2
+    `;
+    await pool.query(updateQuery, [JSON.stringify(networkStatus), websiteId]);
+
+    logger.info({
+      message: 'Updated network_status after IP list change',
+      websiteId,
+      ip,
+      listType,
+      action
+    }, {
+      component: 'database',
+      event: 'update_network_status_success'
+    });
+  } catch (error) {
+    logger.error({
+      message: 'Error updating network_status',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      websiteId,
+      ip,
+      listType,
+      action
+    }, {
+      component: 'database',
+      event: 'update_network_status_error'
+    });
+    throw error;
+  }
+}
+
 export default pool;

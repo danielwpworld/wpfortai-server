@@ -199,14 +199,13 @@ export class WPSecAPI {
   }
 
   // File Management
-  async whitelistFile(filePath: string, reason?: string, addedBy?: string): Promise<void> {
+  async whitelistFile(filePath: string | string[], reason?: string, addedBy?: string): Promise<void> {
+    const body = Array.isArray(filePath)
+      ? { file_paths: filePath, reason, added_by: addedBy }
+      : { file_path: filePath, reason, added_by: addedBy };
     return this.request('whitelist', {
       method: 'POST',
-      body: {
-        file_path: filePath,
-        reason,
-        added_by: addedBy
-      }
+      body
     });
   }
 

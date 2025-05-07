@@ -534,10 +534,15 @@ router.post('/:domain/whitelist', async (req, res) => {
   try {
     const { domain } = req.params;
     const { file_path, reason, added_by } = req.body;
+    
+    // Handle both single file path and array of file paths
+    const filePaths = Array.isArray(file_path) ? file_path : [file_path];
+    
     logger.debug({
-      message: 'Adding file to whitelist',
+      message: 'Adding file(s) to whitelist',
       domain,
       filePath: file_path,
+      fileCount: filePaths.length,
       reason,
       addedBy: added_by
     }, {
@@ -555,6 +560,7 @@ router.post('/:domain/whitelist', async (req, res) => {
       message: 'Calling api.whitelistFile',
       domain,
       filePath: file_path,
+      fileCount: filePaths.length,
       reason,
       addedBy: added_by
     }, {
@@ -567,6 +573,7 @@ router.post('/:domain/whitelist', async (req, res) => {
         message: 'api.whitelistFile succeeded',
         domain,
         filePath: file_path,
+        fileCount: filePaths.length,
         reason,
         addedBy: added_by,
         apiResult: result
@@ -580,58 +587,116 @@ router.post('/:domain/whitelist', async (req, res) => {
         message: 'api.whitelistFile failed',
         domain,
         filePath: file_path,
+        fileCount: filePaths.length,
         reason,
         addedBy: added_by
       }, {
         component: 'whitelist-controller',
         event: 'whitelist_api_call_error'
       });
-      return res.status(502).json({ error: 'Failed to whitelist file on WPSec site', details: errorMsg });
+      return res.status(502).json({ error: 'Failed to whitelist file(s) on WPSec site', details: errorMsg });
     }
     // --- Update scan_detections and insert into whitelisted_detections ---
-    const detectionResult = await pool.query(
-      `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`,
-      [website.id, file_path, req.body.file_hash]
-    );
-    if (detectionResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No scan detection found for file' });
+    const whitelistedResults = [];
+    
+    // Process each file path
+    for (const singleFilePath of filePaths) {
+      try {
+        // Get file hash from request body if it's a single file, or use undefined if it's an array
+        // For array case, we'll just use the file path for the query
+        const fileHash = !Array.isArray(req.body.file_path) ? req.body.file_hash : undefined;
+        
+        let detectionQuery;
+        let detectionParams;
+        
+        if (fileHash) {
+          detectionQuery = `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
+          detectionParams = [website.id, singleFilePath, fileHash];
+        } else {
+          detectionQuery = `SELECT * FROM scan_detections WHERE website_id = $1 AND file_path = $2`;
+          detectionParams = [website.id, singleFilePath];
+        }
+        
+        const detectionResult = await pool.query(detectionQuery, detectionParams);
+        
+        if (detectionResult.rows.length === 0) {
+          logger.warn({
+            message: 'No scan detection found for file',
+            domain,
+            filePath: singleFilePath
+          }, {
+            component: 'whitelist-controller',
+            event: 'whitelist_no_detection'
+          });
+          continue; // Skip to next file
+        }
+        
+        // Update scan_detections status
+        const updateQuery = `
+          UPDATE scan_detections SET status = 'whitelisted'
+          WHERE website_id = $1 AND file_path = $2`;
+        await pool.query(updateQuery, [website.id, singleFilePath]);
+        
+        const detection = detectionResult.rows[0];
+        
+        // Insert into whitelisted_detections
+        const insertQuery = `
+          INSERT INTO whitelisted_detections (
+            website_id, scan_detection_id, file_path, file_hash, file_size, detection_type, reason, whitelisted_at, confidence, threat_score
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
+          ON CONFLICT (website_id, file_path) DO UPDATE SET reason = EXCLUDED.reason, whitelisted_at = NOW(), confidence = EXCLUDED.confidence, threat_score = EXCLUDED.threat_score
+          RETURNING *
+        `;
+        
+        const insertValues = [
+          website.id,
+          detection.id,
+          detection.file_path,
+          detection.file_hash,
+          detection.file_size,
+          detection.detection_type,
+          reason || null,
+          detection.confidence || 0,
+          detection.threat_score || 0
+        ];
+        
+        const whitelistedRes = await pool.query(insertQuery, insertValues);
+        whitelistedResults.push(whitelistedRes.rows[0]);
+      } catch (fileError) {
+        logger.error({
+          message: 'Error processing individual file for whitelist',
+          domain,
+          filePath: singleFilePath,
+          error: fileError instanceof Error ? fileError : new Error(String(fileError))
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_file_error'
+        });
+        // Continue processing other files even if one fails
+      }
     }
-    const updateQuery = `
-      UPDATE scan_detections SET status = 'whitelisted'
-      WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
-    await pool.query(updateQuery, [website.id, file_path, req.body.file_hash]);
-    const detection = detectionResult.rows[0];
-    const insertQuery = `
-      INSERT INTO whitelisted_detections (
-        website_id, scan_detection_id, file_path, file_hash, file_size, detection_type, reason, whitelisted_at, confidence, threat_score
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9)
-      ON CONFLICT (website_id, file_path) DO UPDATE SET reason = EXCLUDED.reason, whitelisted_at = NOW(), confidence = EXCLUDED.confidence, threat_score = EXCLUDED.threat_score
-      RETURNING *
-    `;
-    const insertValues = [
-      website.id,
-      detection.id,
-      detection.file_path,
-      detection.file_hash,
-      detection.file_size,
-      detection.detection_type,
-      reason || null,
-      detection.confidence || 0,
-      detection.threat_score || 0
-    ];
-    const whitelistedRes = await pool.query(insertQuery, insertValues);
-    const whitelisted = whitelistedRes.rows[0];
+    
     logger.info({
-      message: 'File added to whitelist successfully',
+      message: `${whitelistedResults.length} file(s) added to whitelist successfully`,
       domain,
-      filePath: file_path,
+      filePaths,
+      successCount: whitelistedResults.length,
+      totalCount: filePaths.length,
       reason,
       addedBy: added_by
     }, {
       component: 'whitelist-controller',
-      event: 'file_whitelisted'
+      event: 'files_whitelisted'
     });
-    res.json({ status: 'success', whitelisted });
+    
+    res.json({ 
+      status: 'success', 
+      whitelisted: whitelistedResults,
+      summary: {
+        total: filePaths.length,
+        successful: whitelistedResults.length
+      }
+    });
   } catch (error: any) {
     const errorDomain = req.params.domain;
     logger.error({

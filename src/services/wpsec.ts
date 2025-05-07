@@ -236,6 +236,23 @@ export class WPSecAPI {
     return this.request('ping');
   }
 
+  /**
+   * Fix file/directory permissions on the WordPress site
+   * @param options Options for fixing permissions (fix_all or specific path)
+   * @returns Result of the permission fix operation
+   */
+  async fixPermissions(options: {
+    fix_all?: boolean;
+    path?: string;
+    recursive?: boolean;
+    type?: 'file' | 'directory';
+  }): Promise<any> {
+    return this.request('fix-permissions', {
+      method: 'POST',
+      body: options
+    });
+  }
+
   async getWhitelistedFiles(includeDetails?: boolean, verifyIntegrity?: boolean): Promise<WhitelistedFile[]> {
     let endpoint = 'whitelist/list';
     if (includeDetails) endpoint += '?include_details=1';

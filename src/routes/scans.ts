@@ -1748,7 +1748,8 @@ router.get('/:domain/detections', async (req, res) => {
       status: status || 'all',
       limit,
       offset,
-      scanId: scan_id
+      scanId: scan_id,
+      threatScoreFilter: 'above 4'
     }, {
       component: 'scan-controller',
       event: 'get_scan_detections'
@@ -1761,6 +1762,7 @@ router.get('/:domain/detections', async (req, res) => {
       LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
       LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
       WHERE sd.website_id = $1
+      AND sd.threat_score > 4
     `;
     
     // Build conditions array and params array
@@ -1784,9 +1786,9 @@ router.get('/:domain/detections', async (req, res) => {
       ? ` AND ${conditions.join(' AND ')}` 
       : '';
     
-    // Build the full data query
+    // Build the full data query - using DISTINCT ON to get unique detections by file_hash and file_path
     const dataQuery = `
-      SELECT 
+      SELECT DISTINCT ON (sd.file_hash, sd.file_path) 
         sd.id,
         sd.website_id,
         sd.scan_id,
@@ -1828,7 +1830,7 @@ router.get('/:domain/detections', async (req, res) => {
           ELSE NULL
         END as deletion_info
       ${baseQuery}${whereClause}
-      ORDER BY sd.created_at DESC 
+      ORDER BY sd.file_hash, sd.file_path, sd.created_at DESC 
       LIMIT $${params.length + 1} OFFSET $${params.length + 2}
     `;
     
@@ -1838,8 +1840,8 @@ router.get('/:domain/detections', async (req, res) => {
     // Execute data query
     const result = await pool.query(dataQuery, dataParams);
     
-    // Build and execute count query
-    const countQuery = `SELECT COUNT(*) ${baseQuery}${whereClause}`;
+    // Build and execute count query for unique detections
+    const countQuery = `SELECT COUNT(DISTINCT (sd.file_hash, sd.file_path)) ${baseQuery}${whereClause}`;
     const countResult = await pool.query(countQuery, params);
     const totalCount = parseInt(countResult.rows[0].count);
     

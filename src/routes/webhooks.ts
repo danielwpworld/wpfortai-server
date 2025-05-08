@@ -9,8 +9,10 @@ import { logger } from '../services/logger';
 
 const router = Router();
 
-// Middleware to verify webhook signatures
-router.use(async (req, res, next) => {
+// --- Scan-related Webhook Middleware ---
+import type { Request, Response, NextFunction } from 'express';
+
+async function scanWebhookMiddleware(req: Request, res: Response, next: NextFunction) {
   try {
     logger.debug({ 
       message: 'Webhook request received',
@@ -172,10 +174,10 @@ router.use(async (req, res, next) => {
     const err = error instanceof Error ? error : new Error('Unknown error');
     res.status(500).json({ error: err.message });
   }
-});
+}
 
-// Webhook for scan progress updates
-router.post('/scan-progress', async (req, res) => {
+// --- SCAN WEBHOOKS ---
+router.post('/scan-progress', scanWebhookMiddleware, async (req, res) => {
   try {
     logger.debug({
       message: 'Processing scan progress webhook',
@@ -226,7 +228,7 @@ router.post('/scan-progress', async (req, res) => {
 });
 
 // Webhook for scan failed
-router.post('/scan-failed', async (req, res) => {
+router.post('/scan-failed', scanWebhookMiddleware, async (req, res) => {
   try {
     const { scan_id, error_message } = req.body;
     if (!scan_id) {
@@ -273,7 +275,7 @@ router.post('/scan-failed', async (req, res) => {
 });
 
 // Webhook for scan completion
-router.post('/scan-complete', async (req, res) => {
+router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
   try {
     const { scan_id } = req.body;
     if (!scan_id) {
@@ -411,6 +413,90 @@ router.post('/scan-complete', async (req, res) => {
   } catch (error) {
     console.error('Error processing scan completion webhook:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Core Reinstall Webhooks ---
+import { CoreReinstallStore } from '../services/core-reinstall-store';
+
+/**
+ * Webhook: core-reinstall-progress
+ * Body: { operation_id, status, message }
+ */
+router.post('/core-reinstall-progress', async (req, res) => {
+  try {
+    const { operation_id, status, message } = req.body;
+    if (!operation_id) {
+      return res.status(400).json({ error: 'operation_id is required' });
+    }
+    await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message });
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ message: 'Error in core-reinstall-progress webhook', error: err });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: core-reinstall-complete
+ * Body: { operation_id, status, message, completed_at }
+ */
+router.post('/core-reinstall-complete', async (req, res) => {
+  try {
+    const { operation_id, status, message, completed_at } = req.body;
+    if (!operation_id) {
+      return res.status(400).json({ error: 'operation_id is required' });
+    }
+    await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message, completed_at });
+    // Update DB as well
+    try {
+      const updateCoreReinstallRecord = (await import('../config/db')).updateCoreReinstallRecord;
+      await updateCoreReinstallRecord(operation_id, { status, message });
+    } catch (dbError) {
+      const err = dbError instanceof Error ? dbError : new Error(String(dbError));
+      logger.error({ message: 'Failed to update website_core_reinstalls record after core-reinstall-complete', error: err, operation_id }, {
+        component: 'core-reinstall-webhook',
+        event: 'core_reinstall_db_update_error'
+      });
+      // Do not fail the webhook if DB update fails, just log
+    }
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ message: 'Error in core-reinstall-complete webhook', error: err });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: core-reinstall-failed
+ * Body: { operation_id, status, error_message }
+ */
+router.post('/core-reinstall-failed', async (req, res) => {
+  try {
+    const { operation_id, status, error_message } = req.body;
+    if (!operation_id) {
+      return res.status(400).json({ error: 'operation_id is required' });
+    }
+    await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message: error_message });
+    // Update DB as well
+    try {
+      const updateCoreReinstallRecord = (await import('../config/db')).updateCoreReinstallRecord;
+      await updateCoreReinstallRecord(operation_id, { status, message: error_message });
+    } catch (dbError) {
+      const err = dbError instanceof Error ? dbError : new Error(String(dbError));
+      logger.error({ message: 'Failed to update website_core_reinstalls record after core-reinstall-failed', error: err, operation_id }, {
+        component: 'core-reinstall-webhook',
+        event: 'core_reinstall_db_update_error'
+      });
+      // Do not fail the webhook if DB update fails, just log
+    }
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ message: 'Error in core-reinstall-failed webhook', error: err });
     res.status(500).json({ error: err.message });
   }
 });

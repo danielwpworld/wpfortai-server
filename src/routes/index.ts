@@ -5,7 +5,7 @@ import firewallRouter from './firewall';
 import backupsRouter from './backups';
 import filesRouter from './files';
 import updateRouter from './update';
-
+import wordpressRouter from './wordpress';
 import webhooksRouter from './webhooks';
 import webhookSecretsRouter from './webhook-secrets';
 import { verifyToken } from '../middleware/verify-token';
@@ -23,6 +23,7 @@ router.use('/firewall', firewallRouter);
 router.use('/backups', backupsRouter);
 router.use('/files', filesRouter);
 router.use('/update', updateRouter);
+router.use('/wordpress', wordpressRouter);
 
 router.use('/webhooks', webhooksRouter);
 router.use('/webhook-secrets', webhookSecretsRouter);

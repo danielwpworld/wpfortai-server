@@ -154,6 +154,68 @@ export async function createWebsiteScanResult(websiteId: string | number, scanDa
   }
 }
 
+/**
+ * Insert a new core reinstall record into the website_core_reinstalls table
+ * @param data - Object containing all relevant fields for the core reinstall
+ */
+export async function createCoreReinstallRecord(data: {
+  website_id: string;
+  operation_id: string;
+  status?: string;
+  message?: string;
+  version?: string;
+  check_status_endpoint?: string;
+  started_at?: string | Date;
+}) {
+  try {
+    const {
+      website_id,
+      operation_id,
+      status,
+      message,
+      version,
+      check_status_endpoint,
+      started_at
+    } = data;
+    await pool.query(
+      `INSERT INTO website_core_reinstalls (
+        website_id, operation_id, status, message, version, check_status_endpoint, started_at, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+      [
+        website_id,
+        operation_id,
+        status || null,
+        message || null,
+        version || null,
+        check_status_endpoint || null,
+        started_at ? new Date(started_at) : null
+      ]
+    );
+    logger.info({
+      message: 'Inserted website_core_reinstalls record',
+      website_id,
+      operation_id,
+      status,
+      version
+    }, {
+      component: 'database',
+      event: 'core_reinstall_record_created'
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error inserting website_core_reinstalls record',
+      error: err,
+      website_id: data.website_id,
+      operation_id: data.operation_id
+    }, {
+      component: 'database',
+      event: 'core_reinstall_record_error'
+    });
+    throw err;
+  }
+}
+
 export async function createScanDetection(websiteId: string | number, scanId: string, detection: {
   file_path: string;
   threat_score: number;
@@ -1151,6 +1213,68 @@ export async function updateWPCoreLayer(websiteId: string, wpcoreLayer: any): Pr
       event: 'update_wpcore_layer_error'
     });
     throw error;
+  }
+}
+
+/**
+ * Update the status and message of a core reinstall record in website_core_reinstalls
+ * @param operation_id The operation ID of the core reinstall
+ * @param updates Object with status and/or message to update
+ */
+export async function updateCoreReinstallRecord(
+  operation_id: string,
+  updates: { status?: string; message?: string }
+) {
+  if (!operation_id) throw new Error('operation_id is required');
+  if (!updates.status && !updates.message) return;
+
+  // Build dynamic SET clause
+  const setClauses = [];
+  const values = [];
+  let idx = 1;
+  if (updates.status !== undefined) {
+    setClauses.push(`status = $${idx++}`);
+    values.push(updates.status);
+  }
+  if (updates.message !== undefined) {
+    setClauses.push(`message = $${idx++}`);
+    values.push(updates.message);
+  }
+  setClauses.push(`updated_at = NOW()`);
+  const query = `UPDATE website_core_reinstalls SET ${setClauses.join(', ')} WHERE operation_id = $${idx}`;
+  values.push(operation_id);
+
+  // Debugging output
+  logger.debug({
+    message: 'About to update website_core_reinstalls',
+    query,
+    values,
+    databaseUrl: process.env.DATABASE_URL
+  }, {
+    component: 'database',
+    event: 'core_reinstall_record_update_debug'
+  });
+
+  try {
+    const result = await pool.query(query, values);
+    if (result.rowCount === 0) {
+      logger.warn({ message: 'No website_core_reinstalls record found to update', operation_id, updates }, {
+        component: 'database',
+        event: 'core_reinstall_record_update_not_found'
+      });
+    } else {
+      logger.info({ message: 'Updated website_core_reinstalls record', operation_id, updates }, {
+        component: 'database',
+        event: 'core_reinstall_record_updated'
+      });
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({ message: 'Error updating website_core_reinstalls record', error: err, operation_id, updates }, {
+      component: 'database',
+      event: 'core_reinstall_record_update_error'
+    });
+    throw err;
   }
 }
 

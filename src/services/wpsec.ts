@@ -185,6 +185,29 @@ export class WPSecAPI {
     return this.request<CoreCheckResult>('core-check');
   }
 
+  /**
+   * Reinstall WordPress core using the default payload
+   * @param payload Optional custom payload, defaults to recommended options
+   */
+  async coreReinstall(payload: {
+    version?: string;
+    backup?: boolean;
+    skip_content?: boolean;
+    skip_config?: boolean;
+    verify_checksums?: boolean;
+  } = {
+    version: 'current',
+    backup: true,
+    skip_content: true,
+    skip_config: true,
+    verify_checksums: true
+  }): Promise<any> {
+    return this.request('core-reinstall', {
+      method: 'POST',
+      body: payload
+    });
+  }
+
   async updateAll(): Promise<void> {
     return this.request('update-all', {
       method: 'POST'

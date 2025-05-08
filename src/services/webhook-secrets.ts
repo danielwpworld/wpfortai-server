@@ -23,7 +23,7 @@ export class WebhookSecrets {
   /**
    * Get webhook secret for a website
    */
-  static async getWebhookSecret(websiteId: number): Promise<{ currentSecret: string; oldSecret?: string } | null> {
+  static async getWebhookSecret(websiteId: string): Promise<{ currentSecret: string; oldSecret?: string } | null> {
     const result = await pool.query(
       `SELECT 
         secret_key, 
@@ -71,7 +71,7 @@ export class WebhookSecrets {
   /**
    * Create or update webhook secret for a website
    */
-  static async createOrUpdateSecret(websiteId: number): Promise<string> {
+  static async createOrUpdateSecret(websiteId: string): Promise<string> {
     const newSecret = this.generateSecret();
     
     // Get existing secret if any
@@ -105,7 +105,7 @@ export class WebhookSecrets {
   /**
    * Delete webhook secret for a website
    */
-  static async deleteWebhookSecret(websiteId: number): Promise<void> {
+  static async deleteWebhookSecret(websiteId: string): Promise<void> {
     await pool.query(
       'DELETE FROM webhook_secrets WHERE website_id = $1',
       [websiteId]

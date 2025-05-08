@@ -191,7 +191,7 @@ export class WPSecAPI {
     });
   }
 
-  async updateItems(type: 'plugins' | 'themes' | 'wordpress', items: string[]): Promise<void> {
+  async updateItems(type: 'plugins' | 'themes' | 'wordpress', items: string[]): Promise<any> {
     return this.request('update-items', {
       method: 'POST',
       body: { type, items }
@@ -318,5 +318,81 @@ export class WPSecAPI {
         file_path: filePath
       }
     });
+  }
+
+  /**
+   * Get activity logs with filtering support
+   * @param filters Optional filters for the activity logs (start date, end date, event type, severity, etc.)
+   * @returns Activity log data with items, pagination info, settings, and available filters
+   */
+  async getActivityLogs(filters: {
+    start?: string;         // Start date (YYYY-MM-DD)
+    end?: string;           // End date (YYYY-MM-DD)
+    severity?: string;      // Severity level (info, warning, critical)
+    event_type?: string;    // Event type (login_attempt, role_change, etc.)
+    user_id?: number;       // User ID
+    username?: string;      // Username
+    ip_address?: string;    // IP address
+    object_type?: string;   // Object type (user, plugin, file, etc.)
+    object_id?: string;     // Object ID
+    per_page?: number;      // Items per page (default: 100)
+    page?: number;          // Page number (default: 1)
+    orderby?: string;       // Order by field
+    order?: 'ASC' | 'DESC'; // Sort order
+  } = {}): Promise<{
+    status: string;
+    data: {
+      items: Array<{
+        id: string;
+        timestamp: string;
+        ip_address: string;
+        user_id: string;
+        username: string;
+        event_type: string;
+        event_context: string;
+        object_type: string;
+        object_id: string;
+        description: string;
+        severity: 'info' | 'warning' | 'critical';
+      }>;
+      total: number;
+      pages: number;
+      page: number;
+    };
+    settings: {
+      retention_days: string;
+      max_entries: string;
+    };
+    available_filters: {
+      start: string;
+      end: string;
+      severity: string[];
+      event_type: string;
+      user_id: string;
+      username: string;
+      ip_address: string;
+      object_type: string;
+      object_id: string;
+      per_page: string;
+      page: string;
+      orderby: string[];
+      order: string[];
+    };
+  }> {
+    // Build query parameters from filters
+    const queryParams = new URLSearchParams();
+    
+    // Add all filters to query parameters
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined) {
+        queryParams.append(key, String(value));
+      }
+    });
+    
+    // Create endpoint with query parameters
+    const queryString = queryParams.toString();
+    const endpoint = `activity-log${queryString ? `?${queryString}` : ''}`;
+    
+    return this.request(endpoint);
   }
 }

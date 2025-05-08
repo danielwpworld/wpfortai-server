@@ -46,7 +46,7 @@ pool.on('remove', () => {
 });
 
 export interface Website {
-  id: number;
+  id: string; // UUID
   domain: string;
   user_id: number;
   created_at: Date;
@@ -1120,6 +1120,37 @@ export async function batchCreateScanDetections(
       event: 'batch_create_detections_error'
     });
     throw err;
+  }
+}
+
+/**
+ * Update the wpcore_layer field for a website in the website_data table
+ * @param websiteId The UUID of the website
+ * @param wpcoreLayer The new wpcore_layer JSON object
+ */
+export async function updateWPCoreLayer(websiteId: string, wpcoreLayer: any): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE website_data SET wpcore_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+      [wpcoreLayer, websiteId]
+    );
+    logger.info({
+      message: 'Updated wpcore_layer',
+      websiteId,
+    }, {
+      component: 'database',
+      event: 'update_wpcore_layer_success'
+    });
+  } catch (error) {
+    logger.error({
+      message: 'Error updating wpcore_layer',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      websiteId,
+    }, {
+      component: 'database',
+      event: 'update_wpcore_layer_error'
+    });
+    throw error;
   }
 }
 

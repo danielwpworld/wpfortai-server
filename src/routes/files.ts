@@ -143,6 +143,33 @@ router.post('/:domain/fix-permissions', async (req, res) => {
       event: 'permissions_fixed'
     });
 
+    // Run core-check and update wpcore_layer in website_data
+    try {
+      const coreCheckResult = await api.checkCoreIntegrity();
+      // Update the wpcore_layer for this website
+      const { updateWPCoreLayer } = await import('../config/db');
+      await updateWPCoreLayer(website.id, coreCheckResult);
+      logger.info({
+        message: 'wpcore_layer updated after fix-permissions',
+        domain,
+        websiteId: website.id
+      }, {
+        component: 'files-controller',
+        event: 'wpcore_layer_updated_after_fix_permissions'
+      });
+    } catch (coreErr) {
+      logger.error({
+        message: 'Failed to update wpcore_layer after fix-permissions',
+        error: coreErr instanceof Error ? coreErr : new Error(String(coreErr) || 'Unknown error'),
+        domain,
+        websiteId: website.id
+      }, {
+        component: 'files-controller',
+        event: 'wpcore_layer_update_failed_after_fix_permissions'
+      });
+      // Do not fail the main response if this step fails
+    }
+
     res.json(result);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');

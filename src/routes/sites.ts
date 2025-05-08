@@ -375,4 +375,93 @@ router.get('/:domain/health', async (req, res) => {
   }
 });
 
+/**
+ * Get activity logs for a site with filtering support
+ * POST /:domain/activity-log
+ * Supports filtering via query parameters:
+ * - start: Start date (YYYY-MM-DD)
+ * - end: End date (YYYY-MM-DD)
+ * - event_type: Type of event (login_attempt, role_change, etc.)
+ * - severity: Severity level (info, warning, critical)
+ * - and more filters as documented in the response
+ */
+router.post('/:domain/activity-log', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    
+    logger.debug({
+      message: 'Getting activity logs',
+      domain,
+      filters: req.query
+    }, {
+      component: 'sites-controller',
+      event: 'get_activity_logs'
+    });
+    
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+    
+    // Extract filters from query parameters
+    const filters = {
+      start: req.query.start as string,
+      end: req.query.end as string,
+      severity: req.query.severity as string,
+      event_type: req.query.event_type as string,
+      user_id: req.query.user_id ? Number(req.query.user_id) : undefined,
+      username: req.query.username as string,
+      ip_address: req.query.ip_address as string,
+      object_type: req.query.object_type as string,
+      object_id: req.query.object_id as string,
+      per_page: req.query.per_page ? Number(req.query.per_page) : undefined,
+      page: req.query.page ? Number(req.query.page) : undefined,
+      orderby: req.query.orderby as string,
+      order: req.query.order as 'ASC' | 'DESC'
+    };
+    
+    // Get activity logs with filters
+    logger.debug({
+      message: 'Fetching activity logs from WPSec API',
+      domain,
+      filters
+    }, {
+      component: 'sites-controller',
+      event: 'fetch_activity_logs'
+    });
+    
+    const result = await api.getActivityLogs(filters);
+    
+    logger.info({
+      message: 'Activity logs retrieved',
+      domain,
+      totalLogs: result.data.total,
+      page: result.data.page,
+      totalPages: result.data.pages
+    }, {
+      component: 'sites-controller',
+      event: 'activity_logs_retrieved'
+    });
+    
+    res.json(result);
+  } catch (error) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error getting activity logs',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      domain: errorDomain,
+      filters: req.query
+    }, {
+      component: 'sites-controller',
+      event: 'activity_logs_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

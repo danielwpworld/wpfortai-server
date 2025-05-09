@@ -356,66 +356,58 @@ export class WPSecAPI {
     user_id?: number;       // User ID
     username?: string;      // Username
     ip_address?: string;    // IP address
-    object_type?: string;   // Object type (user, plugin, file, etc.)
+    object_type?: string;   // Object type (post, user, plugin, theme, etc.)
     object_id?: string;     // Object ID
-    per_page?: number;      // Items per page (default: 100)
-    page?: number;          // Page number (default: 1)
-    orderby?: string;       // Order by field
-    order?: 'ASC' | 'DESC'; // Sort order
+    per_page?: number;      // Number of logs per page
+    page?: number;          // Page number
+    orderby?: string;       // Field to order by
+    order?: 'ASC' | 'DESC'; // Sort direction
   } = {}): Promise<{
-    status: string;
     data: {
-      items: Array<{
-        id: string;
-        timestamp: string;
-        ip_address: string;
-        user_id: string;
-        username: string;
-        event_type: string;
-        event_context: string;
-        object_type: string;
-        object_id: string;
-        description: string;
-        severity: 'info' | 'warning' | 'critical';
-      }>;
+      items: any[];
       total: number;
-      pages: number;
       page: number;
-    };
-    settings: {
-      retention_days: string;
-      max_entries: string;
-    };
-    available_filters: {
-      start: string;
-      end: string;
-      severity: string[];
-      event_type: string;
-      user_id: string;
-      username: string;
-      ip_address: string;
-      object_type: string;
-      object_id: string;
-      per_page: string;
-      page: string;
-      orderby: string[];
-      order: string[];
+      pages: number;
+      settings: any;
+      available_filters: {
+        start: string;
+        end: string;
+        severity: string[];
+        event_type: string[];
+        user_id: number[];
+        username: string[];
+        ip_address: string[];
+        object_type: string[];
+        object_id: string[];
+        per_page: string;
+        page: string;
+        orderby: string[];
+        order: string[];
+      };
     };
   }> {
-    // Build query parameters from filters
-    const queryParams = new URLSearchParams();
-    
-    // Add all filters to query parameters
+    // Build the URL with wpsec_endpoint and all filters as query parameters
+    // Build the URL with wpsec_endpoint and all filters as top-level query parameters
+    const baseUrl = this.domain.startsWith('http') ? this.domain : `https://${this.domain}`;
+    const url = new URL(baseUrl);
+    url.searchParams.append('wpsec_endpoint', 'activity-log');
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined) {
-        queryParams.append(key, String(value));
+        url.searchParams.append(key, String(value));
       }
     });
-    
-    // Create endpoint with query parameters
-    const queryString = queryParams.toString();
-    const endpoint = `activity-log${queryString ? `?${queryString}` : ''}`;
-    
-    return this.request(endpoint);
+    const fetchFn = await initFetch();
+    const response = await fetchFn(url.toString(), {
+      headers: {
+        'x-api-key': this.apiKey,
+        'Content-Type': 'application/json'
+      },
+      method: 'GET'
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`WPSec API error: ${response.statusText} - ${errorText}`);
+    }
+    return response.json();
   }
 }

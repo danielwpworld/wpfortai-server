@@ -211,12 +211,78 @@ export interface BatchOperationResponse {
 
 export interface CoreCheckResult {
   status: 'success' | 'error';
-  message: string;
-  modified_files: string[];
-  missing_files: string[];
-  total_files_checked: number;
-  integrity_status: 'ok' | 'compromised';
-  last_check: string;
+  timestamp: string;
+  wordpress: {
+    current_version: string;
+    latest_version: string;
+    update_required: boolean;
+  };
+  php: {
+    current_version: string;
+    minimum_recommended: string;
+    upgrade_recommended: boolean;
+  };
+  core_files: {
+    modified_files: Array<{
+      path: string;
+      type: string;
+      severity: string;
+    }>;
+    missing_files: Array<{
+      path: string;
+      type: string;
+      severity: string;
+    }>;
+    unknown_files: Array<{
+      path: string;
+      type: string;
+      severity: string;
+    }>;
+    summary: {
+      total_checked: number;
+      modified_count: number;
+      missing_count: number;
+      unknown_count: number;
+      permission_issues: number;
+    };
+    checksum_api_status: {
+      status: string;
+      message: string;
+    };
+  };
+  permissions: {
+    directories: Record<string, {
+      path: string;
+      current_perms: string;
+      recommended_perms: string;
+      is_writable: boolean;
+      is_readable: boolean;
+      status: string;
+      issues: string[];
+    }>;
+    files: Record<string, {
+      path: string;
+      current_perms?: string;
+      recommended_perms?: string;
+      is_writable?: boolean;
+      is_readable?: boolean;
+      status: string;
+      issues?: string[];
+      message?: string;
+    }>;
+    summary: {
+      total_issues: number;
+      critical_issues: number;
+      warnings: number;
+    };
+    server_info: {
+      type: string;
+      is_apache: boolean;
+      is_nginx: boolean;
+      is_litespeed: boolean;
+      is_iis: boolean;
+    };
+  };
 }
 
 export interface WhitelistVerificationResult {

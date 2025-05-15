@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
-import type { SiteInfo, Vulnerability, CoreIntegrityResult } from '../types/wpsec';
-import { getWebsiteByDomain } from '../config/db';
+import type { SiteInfo, Vulnerability, CoreCheckResult } from '../types/wpsec';
+import { getWebsiteByDomain, updateWPCoreLayer } from '../config/db';
 import pool from '../config/db';
 import { logger } from '../services/logger';
 
@@ -157,19 +157,46 @@ router.get('/:domain/core-check', async (req, res) => {
     });
 
     const result = await api.checkCoreIntegrity();
+    
+    // Debug log the raw response from WPSec API
+    console.log('Core check raw response:', JSON.stringify(result, null, 2));
+
+    // Update the wpcore_layer column in the database
+    await updateWPCoreLayer(website.id, result);
 
     logger.info({
       message: 'Core integrity check completed',
       domain,
       status: result.status,
-      totalModifiedFiles: (result as any).modified_files?.length || 0,
-      totalMissingFiles: (result as any).missing_files?.length || 0
+      integrityStatus: result.core_files?.summary?.missing_count > 0 || result.core_files?.summary?.modified_count > 0 ? 'compromised' : 'ok',
+      totalModifiedFiles: result.core_files?.summary?.modified_count || 0,
+      totalMissingFiles: result.core_files?.summary?.missing_count || 0
     }, {
       component: 'sites-controller',
       event: 'core_check_completed'
     });
 
-    res.json(result);
+    // Prepare simplified response
+    const response = {
+      status: result.status,
+      timestamp: result.timestamp,
+      wordpress_version: result.wordpress?.current_version,
+      wordpress_update_required: result.wordpress?.update_required,
+      integrity_status: result.core_files?.summary?.missing_count > 0 || result.core_files?.summary?.modified_count > 0 ? 'compromised' : 'ok',
+      message: result.core_files?.summary?.missing_count > 0 || result.core_files?.summary?.modified_count > 0 ?
+        `WordPress core integrity check failed. Found ${result.core_files?.summary?.modified_count || 0} modified files and ${result.core_files?.summary?.missing_count || 0} missing files.` :
+        'WordPress core integrity check passed.',
+      modified_files_count: result.core_files?.summary?.modified_count || 0,
+      missing_files_count: result.core_files?.summary?.missing_count || 0,
+      total_files_checked: result.core_files?.summary?.total_checked || 0,
+      permission_issues: result.permissions?.summary?.total_issues || 0
+    };
+    
+    // Debug log the simplified response
+    console.log('Core check simplified response:', JSON.stringify(response, null, 2));
+    
+    // Return the response
+    res.json(response);
   } catch (error: any) {
     const errorDomain = req.params.domain;
     logger.error({

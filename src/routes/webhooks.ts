@@ -3,6 +3,7 @@ import { ScanStore } from '../services/scan-store';
 import { WPSecAPI } from '../services/wpsec';
 import type { ScanResults } from '../types/wpsec';
 import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection, updateWebsiteScanResult } from '../config/db';
+import pool from '../config/db';
 import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
 import { logger } from '../services/logger';
@@ -347,6 +348,58 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
       let totalDetections = 0;
       for (const file of results.infected_files) {
         totalDetections += file.detections.length;
+      }
+
+      // If there are detections, create a notification
+      if (totalDetections > 0) {
+        try {
+          // Get website owner's UID
+          const websiteResult = await pool.query(
+            'SELECT uid FROM websites WHERE id = $1',
+            [website.id]
+          );
+          
+          if (websiteResult.rows.length > 0) {
+            const ownerUid = websiteResult.rows[0].uid;
+            
+            // Create notification
+            await pool.query(
+              `INSERT INTO user_notifications 
+               (uid, title, description, severity, created_by)
+               VALUES ($1, $2, $3, $4, $5)`,
+              [
+                ownerUid,
+                'Infections detected - scan results',
+                'Your website is at risk, take action now',
+                'Critical',
+                'Sentinel'
+              ]
+            );
+            
+            logger.info({
+              message: 'Created notification for scan detections',
+              websiteId: website.id,
+              scanId: scan_id,
+              detectionsCount: totalDetections,
+              ownerUid
+            }, {
+              component: 'webhook',
+              event: 'notification_created'
+            });
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.error({
+            message: 'Error creating notification for scan detections',
+            error: new Error(errorMessage),
+            websiteId: website.id,
+            scanId: scan_id
+          }, {
+            component: 'webhook',
+            event: 'notification_error'
+          });
+          // Don't fail the webhook if notification creation fails
+        }
       }
       
       logger.info({

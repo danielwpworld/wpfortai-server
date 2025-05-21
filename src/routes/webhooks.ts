@@ -365,14 +365,16 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
             // Create notification
             await pool.query(
               `INSERT INTO user_notifications 
-               (uid, title, description, severity, created_by)
-               VALUES ($1, $2, $3, $4, $5)`,
+               (uid, title, description, severity, created_by, website_id, domain)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
               [
                 ownerUid,
                 'Infections detected - scan results',
-                'Your website is at risk, take action now',
+                `${website.domain} is at risk`,
                 'Critical',
-                'Sentinel'
+                'Sentinel',
+                website.id,  // Add website_id as UUID
+                website.domain  // Add domain
               ]
             );
             

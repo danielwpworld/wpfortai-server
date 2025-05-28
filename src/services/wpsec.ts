@@ -208,16 +208,17 @@ export class WPSecAPI {
     });
   }
 
-  async updateAll(): Promise<void> {
+  async updateAll(update_id?: string): Promise<void> {
     return this.request('update-all', {
-      method: 'POST'
+      method: 'POST',
+      body: update_id ? { update_id } : undefined
     });
   }
 
-  async updateItems(type: 'plugins' | 'themes' | 'wordpress', items: string[]): Promise<any> {
+  async updateItems(type: 'plugins' | 'themes' | 'wordpress', items: string[], update_id?: string): Promise<any> {
     return this.request('update-items', {
       method: 'POST',
-      body: { type, items }
+      body: { type, items, update_id }
     });
   }
 

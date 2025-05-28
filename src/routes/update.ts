@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
+import { UpdateStore } from '../services/update-store';
 
 const router = Router();
 
@@ -13,10 +14,38 @@ router.post('/:domain/all', async (req, res) => {
     if (!website) {
       return res.status(404).json({ error: 'Website not found' });
     }
+    
+    // Create a record in Redis for this update operation
+    const updateId = await UpdateStore.createUpdate(domain, website.id);
+    
     const api = new WPSecAPI(domain);
-    logger.info({ message: 'Calling updateAll', domain }, { component: 'update-controller', event: 'update_all_start' });
-    await api.updateAll();
-    logger.info({ message: 'updateAll succeeded', domain }, { component: 'update-controller', event: 'update_all_success' });
+    logger.info({ 
+      message: 'Calling updateAll', 
+      domain, 
+      updateId, 
+      websiteId: website.id 
+    }, { 
+      component: 'update-controller', 
+      event: 'update_all_start' 
+    });
+    
+    // Update Redis status to in-progress
+    await UpdateStore.updateStatus(updateId, 'in-progress');
+    
+    // Pass update_id to the WPSecAPI so it can track the update
+    await api.updateAll(updateId);
+    logger.info({ 
+      message: 'updateAll succeeded', 
+      domain, 
+      updateId, 
+      websiteId: website.id 
+    }, { 
+      component: 'update-controller', 
+      event: 'update_all_success' 
+    });
+    
+    // Update Redis status to completed
+    await UpdateStore.updateStatus(updateId, 'completed');
 
     // Run vulnerabilities check and update application_layer in website_data
     try {
@@ -30,7 +59,8 @@ router.post('/:domain/all', async (req, res) => {
         logger.info({
           message: 'application_layer updated after updateAll',
           domain,
-          websiteId: website.id
+          websiteId: website.id,
+          updateId
         }, {
           component: 'update-controller',
           event: 'application_layer_updated_after_update_all'
@@ -52,7 +82,45 @@ router.post('/:domain/all', async (req, res) => {
     res.json({ status: 'success' });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    logger.error({ message: 'updateAll failed', error: err }, { component: 'update-controller', event: 'update_all_error' });
+    const { domain } = req.params; // Get domain from request params
+    
+    // Try to get the update ID from the request context if it exists
+    const updateId = req.body.updateId;
+    if (updateId) {
+      // Update Redis status to failed
+      try {
+        await UpdateStore.updateStatus(updateId, 'failed');
+        logger.info({
+          message: 'Update status set to failed in Redis',
+          updateId,
+          domain: domain
+        }, {
+          component: 'update-controller',
+          event: 'update_status_failed'
+        });
+      } catch (redisErr) {
+        const redisError = redisErr instanceof Error ? redisErr : new Error(String(redisErr));
+        logger.error({
+          message: 'Failed to update Redis status',
+          error: redisError,
+          updateId,
+          domain: domain
+        }, {
+          component: 'update-controller',
+          event: 'update_status_error'
+        });
+      }
+    }
+    
+    logger.error({ 
+      message: 'updateAll failed', 
+      error: err,
+      domain: domain,
+      updateId: updateId
+    }, { 
+      component: 'update-controller', 
+      event: 'update_all_error' 
+    });
     res.status(500).json({ error: err.message });
   }
 });
@@ -74,10 +142,32 @@ router.post('/:domain/items', async (req, res) => {
     if (!itemSlugs.length) {
       return res.status(400).json({ error: 'No valid item slugs provided' });
     }
+    
     const api = new WPSecAPI(domain);
-    logger.info({ message: 'Calling updateItems', domain, type, itemSlugs }, { component: 'update-controller', event: 'update_items_start' });
+    logger.info({ 
+      message: 'Calling updateItems', 
+      domain, 
+      type, 
+      itemSlugs,
+      websiteId: website.id 
+    }, { 
+      component: 'update-controller', 
+      event: 'update_items_start' 
+    });
+    
+    // Call the WPSecAPI without tracking in Redis
     const updateResult = await api.updateItems(type, itemSlugs);
-    logger.info({ message: 'updateItems succeeded', domain, type, itemSlugs, updateResult }, { component: 'update-controller', event: 'update_items_success' });
+    logger.info({ 
+      message: 'updateItems succeeded', 
+      domain, 
+      type, 
+      itemSlugs, 
+      updateResult,
+      websiteId: website.id 
+    }, { 
+      component: 'update-controller', 
+      event: 'update_items_success' 
+    });
 
     // Check for errors in updateResult
     if (updateResult && Array.isArray(updateResult.results)) {
@@ -126,7 +216,94 @@ router.post('/:domain/items', async (req, res) => {
     res.json({ status: 'success' });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
-    logger.error({ message: 'updateItems failed', error: err }, { component: 'update-controller', event: 'update_items_error' });
+    const { domain } = req.params;
+    
+    logger.error({ 
+      message: 'updateItems failed', 
+      error: err,
+      domain: domain
+    }, { 
+      component: 'update-controller', 
+      event: 'update_items_error' 
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/update/:domain/status
+router.get('/:domain/status', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    
+    // Check if the website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Get update data from Redis using the domain-based key
+    let updateData = await UpdateStore.getUpdate(domain);
+    
+    // If no data found with domain key, try to find updates with update_id keys that match this domain
+    if (!updateData) {
+      // First get all update keys
+      const redis = (await import('../config/redis')).default;
+      const updateKeys = await redis.keys('update:upd_*');
+      
+      // Check each key to see if it contains data for this domain
+      for (const key of updateKeys) {
+        const data = await redis.get(key);
+        if (data) {
+          try {
+            const parsedData = JSON.parse(data);
+            if (parsedData.domain === domain) {
+              // Found an update for this domain
+              if (!updateData) {
+                // First match found
+                updateData = parsedData;
+              } else {
+                // Use the most recent update if there are multiple
+                if (!updateData.completed_at || 
+                    (parsedData.started_at > updateData.started_at && !parsedData.completed_at)) {
+                  updateData = parsedData;
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore parsing errors
+            console.error('Error parsing Redis data:', e);
+          }
+        }
+      }
+    }
+    
+    if (!updateData) {
+      // No update in progress
+      return res.json({
+        status: 'none',
+        message: 'No update in progress for this domain'
+      });
+    }
+    
+    // Return the update status
+    return res.json({
+      status: updateData.status,
+      started_at: updateData.started_at,
+      completed_at: updateData.completed_at,
+      items: updateData.items,
+      domain: updateData.domain,
+      website_id: updateData.website_id
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Failed to get update status',
+      error: err,
+      path: req.path
+    }, {
+      component: 'update-controller',
+      event: 'update_status_error'
+    });
     res.status(500).json({ error: err.message });
   }
 });

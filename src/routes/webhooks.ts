@@ -556,4 +556,147 @@ router.post('/core-reinstall-failed', async (req, res) => {
   }
 });
 
+// --- Update Webhooks ---
+import { UpdateStore, UpdateItemStatus } from '../services/update-store';
+
+/**
+ * Webhook: updates-progress
+ * Body: { domain, items: [{ slug, status }] }
+ */
+router.post('/updates-progress', async (req, res) => {
+  try {
+    const { domain, items } = req.body;
+    if (!domain) {
+      return res.status(400).json({ error: 'domain is required' });
+    }
+    
+    logger.info({
+      message: 'Update progress webhook received',
+      domain,
+      items
+    }, {
+      component: 'update-progress-webhook',
+      event: 'update_progress_received'
+    });
+    
+    // Get update data from Redis
+    const updateData = await UpdateStore.getUpdate(domain);
+    if (!updateData) {
+      logger.warn({
+        message: 'Update not found in Redis',
+        domain
+      }, {
+        component: 'update-progress-webhook',
+        event: 'update_not_found'
+      });
+      return res.status(404).json({ error: 'Update not found' });
+    }
+    
+    // Update items status in Redis
+    const itemUpdates: UpdateItemStatus[] = items.map((item: any) => ({
+      slug: item.slug,
+      status: item.status,
+      error: item.error
+    }));
+    
+    await UpdateStore.updateStatus(domain, 'in-progress', itemUpdates);
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing update progress webhook',
+      error: err
+    }, {
+      component: 'update-progress-webhook',
+      event: 'update_progress_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: updates-completed
+ * Body: { domain }
+ */
+router.post('/updates-completed', async (req, res) => {
+  try {
+    const { domain } = req.body;
+    if (!domain) {
+      return res.status(400).json({ error: 'domain is required' });
+    }
+    
+    logger.info({
+      message: 'Update completed webhook received',
+      domain
+    }, {
+      component: 'update-completed-webhook',
+      event: 'update_completed_received'
+    });
+    
+    // Get update data from Redis
+    const updateData = await UpdateStore.getUpdate(domain);
+    if (!updateData) {
+      logger.warn({
+        message: 'Update not found in Redis',
+        domain
+      }, {
+        component: 'update-completed-webhook',
+        event: 'update_not_found'
+      });
+      return res.status(404).json({ error: 'Update not found' });
+    }
+    
+    // Mark update as completed in Redis
+    await UpdateStore.updateStatus(domain, 'completed');
+    
+    // Refresh vulnerabilities data in website_data
+    try {
+      const api = new WPSecAPI(updateData.domain);
+      const applicationLayer = await api.getVulnerabilities();
+      
+      if (applicationLayer) {
+        const pool = (await import('../config/db')).default;
+        await pool.query(
+          `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+          [applicationLayer, updateData.website_id]
+        );
+        
+        logger.info({
+          message: 'Application layer updated after webhook completion',
+          domain: updateData.domain,
+          websiteId: updateData.website_id
+        }, {
+          component: 'update-completed-webhook',
+          event: 'application_layer_updated'
+        });
+      }
+    } catch (appErr) {
+      const appError = appErr instanceof Error ? appErr : new Error(String(appErr));
+      logger.error({
+        message: 'Failed to update application_layer after webhook completion',
+        error: appError,
+        domain: updateData.domain,
+        websiteId: updateData.website_id
+      }, {
+        component: 'update-completed-webhook',
+        event: 'application_layer_update_failed'
+      });
+      // Do not fail the webhook if this step fails
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing update completed webhook',
+      error: err
+    }, {
+      component: 'update-completed-webhook',
+      event: 'update_completed_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

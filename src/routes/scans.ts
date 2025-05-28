@@ -953,6 +953,13 @@ router.post('/:domain/batch-operation', async (req, res) => {
 
     // Create WPSec API instance
     const api = new WPSecAPI(domain);
+    
+    // If operation is delete, add permanent_deletion: "yes" flag to all files
+    if (operation === 'delete') {
+      for (let i = 0; i < files.length; i++) {
+        files[i].permanent_deletion = "yes";
+      }
+    }
 
     // If operation is delete and we have quarantined files, modify the file paths to use quarantine_path
     if (operation === 'delete' && quarantine_ids && Array.isArray(quarantine_ids) && quarantine_ids.length > 0) {

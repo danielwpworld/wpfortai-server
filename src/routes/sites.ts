@@ -184,8 +184,8 @@ router.get('/:domain/core-check', async (req, res) => {
       wordpress_update_required: result.wordpress?.update_required,
       integrity_status: result.core_files?.summary?.missing_count > 0 || result.core_files?.summary?.modified_count > 0 ? 'compromised' : 'ok',
       message: result.core_files?.summary?.missing_count > 0 || result.core_files?.summary?.modified_count > 0 ?
-        `WordPress core integrity check failed. Found ${result.core_files?.summary?.modified_count || 0} modified files and ${result.core_files?.summary?.missing_count || 0} missing files.` :
-        'WordPress core integrity check passed.',
+        `Found ${result.core_files?.summary?.modified_count || 0} modified files and ${result.core_files?.summary?.missing_count || 0} missing files.` :
+        'Core integrity check completed. Integrity verified.',
       modified_files_count: result.core_files?.summary?.modified_count || 0,
       missing_files_count: result.core_files?.summary?.missing_count || 0,
       total_files_checked: result.core_files?.summary?.total_checked || 0,

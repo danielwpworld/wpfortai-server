@@ -11,7 +11,8 @@ const DEFAULT_CORE_REINSTALL_PAYLOAD = {
   backup: true,
   skip_content: true,
   skip_config: true,
-  verify_checksums: true
+  verify_checksums: true,
+  restore_index_files: true
 };
 
 /**

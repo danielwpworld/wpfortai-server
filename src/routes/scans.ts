@@ -1807,10 +1807,24 @@ router.get('/:domain/detections', async (req, res) => {
       }
     }
     
-    // Check if website exists
     const website = await getWebsiteByDomain(domain);
     if (!website) {
       return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Get the latest scan ID for this website if not provided
+    let latestScanId = scan_id;
+    if (!latestScanId) {
+      const latestScanQuery = `
+        SELECT scan_id FROM website_scans
+        WHERE website_id = $1
+        ORDER BY started_at DESC
+        LIMIT 1
+      `;
+      const latestScanResult = await pool.query(latestScanQuery, [website.id]);
+      if (latestScanResult.rows.length > 0) {
+        latestScanId = latestScanResult.rows[0].scan_id;
+      }
     }
     
     logger.debug({
@@ -1820,101 +1834,159 @@ router.get('/:domain/detections', async (req, res) => {
       status: status || 'all',
       limit,
       offset,
-      scanId: scan_id,
+      latestScanId,
       threatScoreFilter: 'above 4'
     }, {
       component: 'scan-controller',
       event: 'get_scan_detections'
     });
     
-    // Build the base query
-    const baseQuery = `
-      FROM scan_detections sd
-      LEFT JOIN website_scans ws ON sd.scan_id = ws.scan_id
-      LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
-      LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
-      WHERE sd.website_id = $1
-      AND sd.threat_score > 4
-    `;
-    
-    // Build conditions array and params array
-    const conditions = [];
-    // Ensure website.id is treated as a UUID string, not a number
-    const params = [website.id.toString()];
-    
-    // Add filters
+    // Parameters for the query
+    const queryParams = [website.id.toString()];
+    if (latestScanId) {
+      queryParams.push(latestScanId);
+    }
     if (status) {
-      conditions.push(`sd.status = $${params.length + 1}`);
-      params.push(status);
+      queryParams.push(status);
     }
-    
-    if (scan_id) {
-      conditions.push(`sd.scan_id = $${params.length + 1}`);
-      params.push(scan_id);
-    }
-    
-    // Combine conditions
-    const whereClause = conditions.length > 0 
-      ? ` AND ${conditions.join(' AND ')}` 
-      : '';
-    
-    // Build the full data query - using DISTINCT ON to get unique detections by file_hash and file_path
-    const dataQuery = `
-      SELECT DISTINCT ON (sd.file_hash, sd.file_path) 
-        sd.id,
-        sd.website_id,
-        sd.scan_id,
-        sd.file_path,
-        sd.threat_score,
-        sd.confidence,
-        sd.detection_type,
-        sd.severity,
-        sd.description,
-        sd.file_hash,
-        sd.file_size,
-        sd.context_type,
-        sd.risk_level,
-        sd.version_number,
-        sd.created_at,
-        sd.status,
-        ws.scan_id as website_scan_id,
-        ws.started_at as scan_started_at,
-        ws.completed_at as scan_completed_at,
-        ws.status as scan_status,
-        CASE 
-          WHEN qd.id IS NOT NULL THEN json_build_object(
-            'id', qd.id,
-            'quarantine_id', qd.quarantine_id,
-            'original_path', qd.original_path,
-            'quarantine_path', qd.quarantine_path,
-            'timestamp', qd.timestamp,
-            'file_size', qd.file_size,
-            'file_type', qd.file_type,
-            'file_hash', qd.file_hash
-          )
-          ELSE NULL
-        END as quarantine_info,
-        CASE 
-          WHEN dd.id IS NOT NULL THEN json_build_object(
-            'id', dd.id,
-            'timestamp', dd.timestamp
-          )
-          ELSE NULL
-        END as deletion_info
-      ${baseQuery}${whereClause}
-      ORDER BY sd.file_hash, sd.file_path, sd.created_at DESC 
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `;
     
     // Add pagination parameters
-    const dataParams = [...params, limit, offset];
+    queryParams.push(limit.toString(), offset.toString());
+    
+    // Build the query to get:
+    // 1. Active detections from the latest scan only
+    // 2. Quarantined or deleted items from any scan
+    const dataQuery = `
+      WITH latest_scan_detections AS (
+        SELECT DISTINCT ON (sd.file_hash, sd.file_path) 
+          sd.id,
+          sd.website_id,
+          sd.scan_id,
+          sd.file_path,
+          sd.threat_score,
+          sd.confidence,
+          sd.detection_type,
+          sd.severity,
+          sd.description,
+          sd.file_hash,
+          sd.file_size,
+          sd.context_type,
+          sd.risk_level,
+          sd.version_number,
+          sd.created_at,
+          sd.status,
+          ws.scan_id as website_scan_id,
+          ws.started_at as scan_started_at,
+          ws.completed_at as scan_completed_at,
+          ws.status as scan_status,
+          NULL::json as quarantine_info,
+          NULL::json as deletion_info
+        FROM scan_detections sd
+        LEFT JOIN website_scans ws ON sd.scan_id = ws.scan_id
+        WHERE sd.website_id = $1
+          AND sd.threat_score > 4
+          ${latestScanId ? 'AND sd.scan_id = $2' : ''}
+          ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : 'AND sd.status = \'active\''}
+          AND NOT EXISTS (
+            SELECT 1 FROM quarantined_detections qd WHERE qd.scan_detection_id = sd.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM deleted_detections dd WHERE dd.scan_detection_id = sd.id
+          )
+        ORDER BY sd.file_hash, sd.file_path, sd.created_at DESC
+      ),
+      special_items AS (
+        SELECT DISTINCT ON (sd.file_hash, sd.file_path) 
+          sd.id,
+          sd.website_id,
+          sd.scan_id,
+          sd.file_path,
+          sd.threat_score,
+          sd.confidence,
+          sd.detection_type,
+          sd.severity,
+          sd.description,
+          sd.file_hash,
+          sd.file_size,
+          sd.context_type,
+          sd.risk_level,
+          sd.version_number,
+          sd.created_at,
+          sd.status,
+          ws.scan_id as website_scan_id,
+          ws.started_at as scan_started_at,
+          ws.completed_at as scan_completed_at,
+          ws.status as scan_status,
+          CASE 
+            WHEN qd.id IS NOT NULL THEN json_build_object(
+              'id', qd.id,
+              'quarantine_id', qd.quarantine_id,
+              'original_path', qd.original_path,
+              'quarantine_path', qd.quarantine_path,
+              'timestamp', qd.timestamp,
+              'file_size', qd.file_size,
+              'file_type', qd.file_type,
+              'file_hash', qd.file_hash
+            )
+            ELSE NULL
+          END as quarantine_info,
+          CASE 
+            WHEN dd.id IS NOT NULL THEN json_build_object(
+              'id', dd.id,
+              'timestamp', dd.timestamp
+            )
+            ELSE NULL
+          END as deletion_info
+        FROM scan_detections sd
+        LEFT JOIN website_scans ws ON sd.scan_id = ws.scan_id
+        LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
+        LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
+        WHERE sd.website_id = $1
+          AND sd.threat_score > 4
+          ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : ''}
+          AND (qd.id IS NOT NULL OR dd.id IS NOT NULL)
+        ORDER BY sd.file_hash, sd.file_path, sd.created_at DESC
+      )
+      SELECT * FROM (
+        SELECT * FROM latest_scan_detections
+        UNION ALL
+        SELECT * FROM special_items
+      ) combined_results
+      ORDER BY file_hash, file_path, created_at DESC
+      LIMIT $${latestScanId ? (status ? '4' : '3') : (status ? '3' : '2')} 
+      OFFSET $${latestScanId ? (status ? '5' : '4') : (status ? '4' : '3')}
+    `;
+    
+    // Log the query and parameters for debugging
+    console.log('EXECUTING QUERY:', dataQuery);
+    console.log('WITH PARAMETERS:', queryParams);
     
     // Execute data query
-    const result = await pool.query(dataQuery, dataParams);
+    const result = await pool.query(dataQuery, queryParams);
     
-    // Build and execute count query for unique detections
-    const countQuery = `SELECT COUNT(DISTINCT (sd.file_hash, sd.file_path)) ${baseQuery}${whereClause}`;
-    const countResult = await pool.query(countQuery, params);
+    // Count query for pagination
+    const countQuery = `
+      SELECT COUNT(*) FROM (
+        SELECT DISTINCT ON (sd.file_hash, sd.file_path) sd.id
+        FROM scan_detections sd
+        LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
+        LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
+        WHERE sd.website_id = $1
+          AND sd.threat_score > 4
+          ${latestScanId ? 'AND (sd.scan_id = $2 OR qd.id IS NOT NULL OR dd.id IS NOT NULL)' : ''}
+          ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : ''}
+      ) as count_query
+    `;
+    
+    const countParams = [website.id.toString()];
+    if (latestScanId) {
+      countParams.push(latestScanId);
+    }
+    if (status) {
+      countParams.push(status);
+    }
+    
+    const countResult = await pool.query(countQuery, countParams);
     const totalCount = parseInt(countResult.rows[0].count);
     
     logger.debug({
@@ -1940,7 +2012,8 @@ router.get('/:domain/detections', async (req, res) => {
       return row;
     });
 
-    res.json({
+    // Create the response object
+    const responseObj = {
       status: 'success',
       detections,
       pagination: {
@@ -1949,7 +2022,12 @@ router.get('/:domain/detections', async (req, res) => {
         offset,
         has_more: totalCount > (offset + detections.length)
       }
-    });
+    };
+    
+    // Log the full response for debugging
+    console.log('FULL DETECTION RESPONSE:', JSON.stringify(responseObj, null, 2));
+    
+    res.json(responseObj);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
     logger.error({

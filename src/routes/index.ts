@@ -8,6 +8,7 @@ import updateRouter from './update';
 import wordpressRouter from './wordpress';
 import webhooksRouter from './webhooks';
 import webhookSecretsRouter from './webhook-secrets';
+import operatorRouter from './operator';
 import { verifyToken } from '../middleware/verify-token';
 
 const router = Router();
@@ -24,6 +25,7 @@ router.use('/backups', backupsRouter);
 router.use('/files', filesRouter);
 router.use('/update', updateRouter);
 router.use('/wordpress', wordpressRouter);
+router.use('/operator', operatorRouter);
 
 router.use('/webhooks', webhooksRouter);
 router.use('/webhook-secrets', webhookSecretsRouter);

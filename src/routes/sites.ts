@@ -542,4 +542,114 @@ router.get('/:domain/uptime', async (req, res) => {
   }
 });
 
+/**
+ * Get historical uptime data for a website
+ * GET /:domain/uptime-history
+ * Returns the latest 50 uptime entries for time series visualization
+ */
+router.get('/:domain/uptime-history', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    logger.debug({
+      message: 'Getting site uptime history',
+      domain,
+      limit
+    }, {
+      component: 'sites-controller',
+      event: 'get_site_uptime_history'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Get the website ID (which should be a UUID based on the memory)
+    const websiteId = website.id;
+
+    // Query the latest uptime entries from the database
+    const query = `
+      SELECT 
+        id, 
+        created_at, 
+        status, 
+        response_time_seconds, 
+        wp_version, 
+        wpsec_version, 
+        maintenance_mode, 
+        database_connected, 
+        memory_usage_percent, 
+        memory_critical, 
+        filesystem_accessible, 
+        has_fatal_errors, 
+        plugin_status, 
+        timestamp
+      FROM website_uptime 
+      WHERE website_id = $1 
+      ORDER BY created_at DESC 
+      LIMIT $2
+    `;
+
+    const result = await pool.query(query, [websiteId, limit]);
+
+    // Format the data for frontend time series visualization
+    const uptimeHistory = result.rows.map(row => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      date: row.created_at,
+      status: row.status,
+      responseTime: parseFloat(row.response_time_seconds),
+      wpVersion: row.wp_version,
+      wpsecVersion: row.wpsec_version,
+      maintenanceMode: row.maintenance_mode,
+      database: {
+        connected: row.database_connected,
+        error: row.database_error
+      },
+      memory: {
+        usagePercent: parseFloat(row.memory_usage_percent),
+        critical: row.memory_critical
+      },
+      filesystem: {
+        accessible: row.filesystem_accessible
+      },
+      hasFatalErrors: row.has_fatal_errors,
+      pluginStatus: row.plugin_status
+    }));
+
+    logger.info({
+      message: 'Site uptime history retrieved',
+      domain,
+      entriesCount: uptimeHistory.length
+    }, {
+      component: 'sites-controller',
+      event: 'site_uptime_history_retrieved'
+    });
+
+    res.json({
+      success: true,
+      data: {
+        domain,
+        count: uptimeHistory.length,
+        history: uptimeHistory
+      }
+    });
+  } catch (error) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error getting site uptime history',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      domain: errorDomain
+    }, {
+      component: 'sites-controller',
+      event: 'site_uptime_history_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

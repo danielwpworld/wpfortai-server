@@ -349,6 +349,37 @@ export class WPSecAPI {
    * @param filters Optional filters for the activity logs (start date, end date, event type, severity, etc.)
    * @returns Activity log data with items, pagination info, settings, and available filters
    */
+  /**
+   * Get uptime information from the WordPress site
+   * @returns Uptime data including status, response time, WP version, and system health metrics
+   */
+  async getUptime(): Promise<{
+    success: boolean;
+    data: {
+      status: string;
+      timestamp: number;
+      response_time: number;
+      wp_version: string;
+      wpsec_version: string;
+      maintenance_mode: boolean;
+      database: {
+        connected: boolean;
+        error: string | null;
+      };
+      memory: {
+        usage_percent: number;
+        critical: boolean;
+      };
+      filesystem: {
+        accessible: boolean;
+      };
+      has_fatal_errors: boolean;
+      plugin_status: boolean;
+    };
+  }> {
+    return this.request('uptime');
+  }
+
   async getActivityLogs(filters: {
     start?: string;         // Start date (YYYY-MM-DD)
     end?: string;           // End date (YYYY-MM-DD)

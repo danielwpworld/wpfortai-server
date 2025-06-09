@@ -476,4 +476,70 @@ router.get('/:domain/activity-log', async (req, res) => {
   }
 });
 
+/**
+ * Get uptime information from the WordPress site
+ * GET /:domain/uptime
+ * Returns uptime data including status, response time, WP version, and system health metrics
+ */
+router.get('/:domain/uptime', async (req, res) => {
+  try {
+    const { domain } = req.params;
+
+    logger.debug({
+      message: 'Getting site uptime information',
+      domain
+    }, {
+      component: 'sites-controller',
+      event: 'get_site_uptime'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Create WPSec API instance
+    const api = new WPSecAPI(domain);
+
+    // Get uptime information
+    logger.debug({
+      message: 'Fetching uptime information from WPSec API',
+      domain
+    }, {
+      component: 'sites-controller',
+      event: 'fetch_site_uptime'
+    });
+
+    const result = await api.getUptime();
+
+    logger.info({
+      message: 'Site uptime information retrieved',
+      domain,
+      status: result.data.status,
+      wpVersion: result.data.wp_version,
+      wpsecVersion: result.data.wpsec_version,
+      responseTime: result.data.response_time,
+      hasFatalErrors: result.data.has_fatal_errors
+    }, {
+      component: 'sites-controller',
+      event: 'site_uptime_retrieved'
+    });
+
+    res.json(result);
+  } catch (error) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error getting site uptime information',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      domain: errorDomain
+    }, {
+      component: 'sites-controller',
+      event: 'site_uptime_error'
+    });
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

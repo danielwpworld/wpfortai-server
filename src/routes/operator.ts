@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getWebsiteByDomain } from '../config/db';
+import pool from '../config/db';
 import { logger } from '../services/logger';
 import { randomBytes } from 'crypto';
 import redis from '../config/redis';
@@ -351,6 +352,328 @@ router.get('/:domain/assessment/active', async (req, res) => {
     }, {
       component: 'operator-controller',
       event: 'check_active_assessment_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/operator/:domain/actions/execute
+ * Creates Redis entries for action worker to process selected action items
+ */
+router.post('/:domain/actions/execute', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const { action_ids } = req.body;
+    
+    if (!Array.isArray(action_ids) || action_ids.length === 0) {
+      return res.status(400).json({ error: 'action_ids must be a non-empty array of UUIDs or action names' });
+    }
+    
+    // Check if we received action names instead of UUIDs
+    const isUuid = (id: string) => {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    };
+    
+    const containsUuids = action_ids.every(id => isUuid(id));
+    const containsActionNames = !containsUuids;
+    
+    logger.debug({
+      message: 'Creating action jobs in Redis',
+      domain,
+      action_count: action_ids.length
+    }, {
+      component: 'operator-controller',
+      event: 'create_action_jobs'
+    });
+    
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Get action items from database
+    let query;
+    let queryParams;
+    
+    if (containsUuids) {
+      // If we received UUIDs, query by ID
+      query = `
+        SELECT ai.id, ai.action, ai.data, ai.risk_score, ai.description, wa.website_id, w.domain
+        FROM assessment_action_items ai
+        JOIN website_assessments wa ON ai.assessment_id = wa.id
+        JOIN websites w ON wa.website_id = w.id
+        WHERE ai.id = ANY($1::uuid[]) AND w.domain = $2
+      `;
+      queryParams = [action_ids, domain];
+    } else {
+      // If we received action names, query by action name
+      query = `
+        SELECT ai.id, ai.action, ai.data, ai.risk_score, ai.description, wa.website_id, w.domain
+        FROM assessment_action_items ai
+        JOIN website_assessments wa ON ai.assessment_id = wa.id
+        JOIN websites w ON wa.website_id = w.id
+        WHERE ai.action = ANY($1) AND w.domain = $2
+      `;
+      queryParams = [action_ids, domain];
+    }
+    
+    const { rows: actionItems } = await pool.query(query, queryParams);
+    
+    if (actionItems.length === 0) {
+      return res.status(404).json({ 
+        error: 'No matching action items found for the provided IDs and domain' 
+      });
+    }
+    
+    // Check for existing in-progress actions of the same type
+    // First, get all keys matching the action: prefix
+    const actionKeys = await redis.keys('action:*');
+    const existingActionsPromises = actionKeys.map(async (key) => {
+      const data = await redis.get(key);
+      if (data) {
+        return JSON.parse(data);
+      }
+      return null;
+    });
+    
+    const existingActions = (await Promise.all(existingActionsPromises)).filter(Boolean);
+    
+    // Filter out action items that already have in-progress actions of the same type
+    const filteredActionItems = actionItems.filter(item => {
+      const hasInProgressAction = existingActions.some(action => 
+        action.action_type === item.action && 
+        action.domain === domain && 
+        (action.status === 'pending' || action.status === 'in_progress')
+      );
+      
+      if (hasInProgressAction) {
+        logger.warn({
+          message: 'Skipping action creation - already in progress',
+          domain,
+          action_type: item.action,
+          action_id: item.id
+        }, {
+          component: 'operator-controller',
+          event: 'action_already_in_progress'
+        });
+      }
+      
+      return !hasInProgressAction;
+    });
+    
+    if (filteredActionItems.length === 0) {
+      return res.status(409).json({
+        error: 'All requested actions already have in-progress instances',
+        message: 'Cannot create duplicate in-progress actions of the same type'
+      });
+    }
+    
+    // Create Redis entries for each filtered action item
+    const currentTime = new Date().toISOString();
+    const actionPromises = filteredActionItems.map(async (item: {
+      id: string;
+      action: string;
+      data: any;
+      website_id: string;
+      domain: string;
+    }) => {
+      const actionKey = `action:${item.id}`;
+      const actionData = {
+        id: item.id,
+        status: 'pending',
+        created_at: currentTime,
+        action_type: item.action,
+        website_id: item.website_id,
+        domain: item.domain,
+        data: item.data
+      };
+      
+      // Store in Redis with 7-day TTL (same as assessments)
+      await redis.setex(actionKey, 60 * 60 * 24 * 7, JSON.stringify(actionData));
+      
+      return item.id;
+    });
+    
+    const processedActionIds = await Promise.all(actionPromises);
+    
+    logger.info({
+      message: 'Action jobs created successfully',
+      domain,
+      action_count: processedActionIds.length,
+      action_ids: processedActionIds
+    }, {
+      component: 'operator-controller',
+      event: 'action_jobs_created'
+    });
+    
+    res.status(200).json({
+      status: 'success',
+      message: 'Action jobs created successfully',
+      action_count: processedActionIds.length,
+      action_ids: processedActionIds
+    });
+    
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error creating action jobs',
+      error: err,
+      domain: req.params.domain
+    }, {
+      component: 'operator-controller',
+      event: 'create_action_jobs_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/operator/:domain/actions/:actionId/status
+ * Gets the status of an action from both Redis and database
+ */
+router.get('/:domain/actions/:actionId/status', async (req, res) => {
+  try {
+    const { domain, actionId } = req.params;
+    
+    logger.debug({
+      message: 'Getting action status',
+      domain,
+      actionId
+    }, {
+      component: 'operator-controller',
+      event: 'get_action_status'
+    });
+    
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Check if actionId is a UUID or an action name
+    const isUuid = (id: string) => {
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    };
+    
+    const isActionIdUuid = isUuid(actionId);
+    
+    // First check Redis for the most up-to-date status
+    // If it's a UUID, use it directly as the key
+    let redisData = null;
+    if (isActionIdUuid) {
+      const actionKey = `action:${actionId}`;
+      redisData = await redis.get(actionKey);
+    } else {
+      // If it's an action name, we need to scan Redis for keys with matching action_type
+      // This is more complex and would require scanning all action keys
+      // For now, we'll skip Redis lookup for action names and rely on the database
+    }
+    
+    // Then check the database for the action item
+    let query;
+    let queryParams;
+    
+    if (isActionIdUuid) {
+      // If we received a UUID, query by ID
+      query = `
+        SELECT ai.id, ai.action, ai.data, ai.risk_score, ai.description, ai.status, 
+               ai.created_at, ai.updated_at, ai.status_updated_at, 
+               wa.website_id, w.domain
+        FROM assessment_action_items ai
+        JOIN website_assessments wa ON ai.assessment_id = wa.id
+        JOIN websites w ON wa.website_id = w.id
+        WHERE ai.id = $1::uuid AND w.domain = $2
+      `;
+      queryParams = [actionId, domain];
+    } else {
+      // If we received an action name, query by action name
+      query = `
+        SELECT ai.id, ai.action, ai.data, ai.risk_score, ai.description, ai.status, 
+               ai.created_at, ai.updated_at, ai.status_updated_at, 
+               wa.website_id, w.domain
+        FROM assessment_action_items ai
+        JOIN website_assessments wa ON ai.assessment_id = wa.id
+        JOIN websites w ON wa.website_id = w.id
+        WHERE ai.action = $1 AND w.domain = $2
+      `;
+      queryParams = [actionId, domain];
+    }
+    
+    const { rows } = await pool.query(query, queryParams);
+    const dbAction = rows[0];
+    
+    // If neither Redis nor DB has the action, return 404
+    if (!redisData && !dbAction) {
+      return res.status(404).json({ error: 'Action not found' });
+    }
+    
+    // Prepare response based on available data
+    const response: any = {
+      status: 'success',
+      action_id: actionId,
+      domain
+    };
+    
+    // If Redis has data, it's the most current for in-progress actions
+    if (redisData) {
+      const actionData = JSON.parse(redisData);
+      response.redis_status = actionData.status;
+      response.created_at = actionData.created_at;
+      response.action_type = actionData.action_type;
+      response.data = actionData.data;
+      
+      // Include any result data if available
+      if (actionData.result) {
+        response.result = actionData.result;
+      }
+      
+      // Include any error if available
+      if (actionData.error) {
+        response.error = actionData.error;
+      }
+    }
+    
+    // If DB has data, include it (this is the permanent record)
+    if (dbAction) {
+      response.db_status = dbAction.status;
+      response.db_created_at = dbAction.created_at;
+      response.db_updated_at = dbAction.updated_at;
+      response.db_status_updated_at = dbAction.status_updated_at;
+      response.action_type = dbAction.action;
+      response.description = dbAction.description;
+      response.risk_score = dbAction.risk_score;
+      response.data = dbAction.data;
+    }
+    
+    // Determine the final status (Redis takes precedence if available)
+    response.status_source = redisData ? 'redis' : 'database';
+    response.current_status = redisData ? JSON.parse(redisData).status : dbAction.status;
+    
+    logger.debug({
+      message: 'Action status retrieved',
+      domain,
+      actionId,
+      status: response.current_status,
+      statusSource: response.status_source
+    }, {
+      component: 'operator-controller',
+      event: 'action_status_retrieved'
+    });
+    
+    res.json(response);
+    
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error getting action status',
+      error: err,
+      domain: req.params.domain,
+      actionId: req.params.actionId
+    }, {
+      component: 'operator-controller',
+      event: 'action_status_error'
     });
     res.status(500).json({ error: err.message });
   }

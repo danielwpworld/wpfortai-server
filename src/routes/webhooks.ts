@@ -678,6 +678,96 @@ router.post('/core-reinstall-failed', async (req, res) => {
   }
 });
 
+// --- Firewall Webhooks ---
+
+/**
+ * Webhook: firewall-enabled
+ * Body: { domain }
+ * 
+ * This webhook is triggered when the firewall is enabled on a site.
+ * It checks the current firewall status and updates the network_layer column in website_data.
+ */
+router.post('/firewall-enabled', async (req, res) => {
+  try {
+    const { domain } = req.body;
+    
+    if (!domain) {
+      return res.status(400).json({ error: 'domain is required' });
+    }
+    
+    logger.info({
+      message: 'Firewall enabled webhook received',
+      domain
+    }, {
+      component: 'firewall-webhook',
+      event: 'firewall_enabled_webhook'
+    });
+    
+    // First, get the website to ensure it exists and get its UUID
+    const { getWebsiteByDomain } = await import('../config/db');
+    const website = await getWebsiteByDomain(domain);
+    
+    if (!website) {
+      logger.error({
+        message: 'Website not found for firewall-enabled webhook',
+        domain
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Check the current firewall status
+    try {
+      logger.info({
+        message: 'Checking firewall status after enabling',
+        domain
+      }, {
+        component: 'firewall-webhook',
+        event: 'firewall_status_check_start'
+      });
+      
+      const { WPSecAPI } = await import('../services/wpsec');
+      const api = new WPSecAPI(domain);
+      const firewallStatus = await api.getFirewallStatus();
+      
+      // Update the network_layer in website_data
+      const pool = (await import('../config/db')).default;
+      await pool.query(
+        `UPDATE website_data SET network_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+        [JSON.stringify(firewallStatus), website.id] // website.id is a UUID
+      );
+      
+      logger.info({
+        message: 'network_layer updated after firewall enabled',
+        domain,
+        firewall_active: firewallStatus.active,
+        rules_count: firewallStatus.rules_count,
+        blocked_requests: firewallStatus.blocked_requests
+      }, {
+        component: 'firewall-webhook',
+        event: 'network_layer_updated'
+      });
+      
+      res.json({ success: true, firewall_status: firewallStatus });
+    } catch (firewallCheckError) {
+      const err = firewallCheckError instanceof Error ? firewallCheckError : new Error(String(firewallCheckError));
+      logger.error({
+        message: 'Failed to check firewall status after enabling',
+        error: err,
+        domain
+      }, {
+        component: 'firewall-webhook',
+        event: 'firewall_status_check_error'
+      });
+      
+      res.status(500).json({ error: err.message });
+    }
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ message: 'Error in firewall-enabled webhook', error: err });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- Update Webhooks ---
 import { UpdateStore, UpdateItemStatus } from '../services/update-store';
 

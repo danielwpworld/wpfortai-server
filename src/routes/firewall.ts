@@ -131,6 +131,35 @@ router.post('/:domain/toggle', async (req, res) => {
       });
       // Continue since the primary operation succeeded
     }
+    
+    // Fetch firewall logs and update the network_layer column
+    try {
+      // Default to 30 days period for firewall logs
+      const firewallLogs = await api.getFirewallLogs(30);
+      
+      const { updateNetworkLayer } = await import('../config/db');
+      await updateNetworkLayer(String(website.id), firewallLogs);
+      
+      logger.info({
+        message: 'Updated network_layer with firewall logs',
+        domain,
+        websiteId: website.id,
+        logsCount: firewallLogs.length || 0
+      }, {
+        component: 'firewall-controller',
+        event: 'network_layer_updated'
+      });
+    } catch (logsError) {
+      logger.warn({
+        message: 'Failed to update network_layer with firewall logs, but firewall was toggled',
+        domain,
+        error: logsError
+      }, {
+        component: 'firewall-controller',
+        event: 'network_layer_update_failed'
+      });
+      // Continue since the primary operation succeeded
+    }
 
     logger.info({
       message: 'Firewall status toggled successfully',
@@ -194,32 +223,6 @@ router.get('/:domain/logs', async (req, res) => {
       component: 'firewall-controller',
       event: 'firewall_logs_retrieved'
     });
-    
-    // Update network_status column with firewall logs
-    try {
-      const { updateFirewallLogs } = await import('../config/db');
-      await updateFirewallLogs(String(website.id), logs);
-      
-      logger.info({
-        message: 'Updated network_status with firewall logs in database',
-        domain,
-        websiteId: website.id,
-        logsCount: logs.length || 0
-      }, {
-        component: 'firewall-controller',
-        event: 'firewall_logs_db_updated'
-      });
-    } catch (dbError) {
-      logger.warn({
-        message: 'Failed to update network_status with firewall logs in database',
-        domain,
-        error: dbError
-      }, {
-        component: 'firewall-controller',
-        event: 'firewall_logs_db_update_failed'
-      });
-      // Continue since we can still return the logs to the client
-    }
 
     res.json(logs);
   } catch (error) {

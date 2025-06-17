@@ -953,117 +953,95 @@ export async function updateWebsiteScanResult(websiteId: string | number, scanId
  * @param active Whether the firewall is active (1) or inactive (0)
  */
 /**
- * Updates the network_status field in the website_data table with firewall logs
+ * Updates the network_layer field in the website_data table with firewall logs data
  * @param websiteId The UUID of the website
- * @param logs The firewall logs from WPSec API
+ * @param firewallLogs The firewall logs data from WPSec API
  */
-export async function updateFirewallLogs(
+export async function updateNetworkLayer(
   websiteId: string,
-  logs: any[]
+  firewallLogs: any
 ): Promise<void> {
   try {
     logger.debug({
-      message: 'Updating network_status with firewall logs',
-      websiteId,
-      logsCount: logs.length
+      message: 'Updating network_layer with firewall logs data',
+      websiteId
     }, {
       component: 'database',
-      event: 'update_firewall_logs'
+      event: 'update_network_layer'
     });
 
     // First, check if website_data record exists
     const checkQuery = `
-      SELECT id, network_status FROM website_data 
+      SELECT id, network_layer FROM website_data 
       WHERE website_id = $1
     `;
     const checkResult = await pool.query(checkQuery, [websiteId]);
     
+    let networkLayer: any = {};
+    
     if (checkResult.rows.length === 0) {
       logger.debug({
-        message: 'No website_data record found, will be created by background job',
+        message: 'No website_data record found, will create new network_layer',
         websiteId
       }, {
         component: 'database',
-        event: 'update_firewall_logs_no_record'
+        event: 'update_network_layer_no_record'
       });
-      return;
+    } else {
+      // Get existing network_layer or initialize if not exists
+      networkLayer = checkResult.rows[0].network_layer || {};
     }
 
-    // Get current network_status or initialize if not exists
-    const networkStatus = checkResult.rows[0].network_status || {};
-    
-    // Initialize stats if not exists
-    if (!networkStatus.stats) {
-      networkStatus.stats = {};
-    }
-    
-    // Update the recent_blocks with the logs
-    networkStatus.stats.recent_blocks = logs;
-    
-    // Calculate top IPs (most frequent in logs)
-    const ipCounts: Record<string, number> = {};
-    logs.forEach(log => {
-      if (log.ip) {
-        ipCounts[log.ip] = (ipCounts[log.ip] || 0) + 1;
-      }
-    });
-    
-    // Sort IPs by count and take top 5
-    const topIps = Object.entries(ipCounts)
-      .sort(([, countA], [, countB]) => (countB as number) - (countA as number))
-      .slice(0, 5)
-      .map(([ip, count]) => ({ ip, count }));
-    
-    networkStatus.stats.top_ips = topIps;
-    
-    // Calculate top rules
-    const ruleCounts: Record<string, number> = {};
-    logs.forEach(log => {
-      if (log.rules && Array.isArray(log.rules)) {
-        log.rules.forEach((rule: any) => {
-          if (rule.rule) {
-            ruleCounts[rule.rule] = (ruleCounts[rule.rule] || 0) + 1;
-          }
-        });
-      }
-    });
-    
-    // Sort rules by count and take top 5
-    const topRules = Object.entries(ruleCounts)
-      .sort(([, countA], [, countB]) => (countB as number) - (countA as number))
-      .slice(0, 5)
-      .map(([rule, count]) => ({ rule, count }));
-    
-    networkStatus.stats.top_rules = topRules;
-    
-    // Count total blocks
-    networkStatus.stats.total_blocked = logs.length.toString();
-    
-    // Update the database
-    const updateQuery = `
-      UPDATE website_data 
-      SET network_status = $1, 
-          fetched_at = NOW() 
-      WHERE website_id = $2
+    // Process the firewall logs into the expected network_layer format
+    const processedData = {
+      data: {
+        trends: {
+          attacks_by_day: firewallLogs.trends?.attacks_by_day || []
+        },
+        summary: {
+          period_days: firewallLogs.period_days || "30",
+          total_blocks: firewallLogs.total_blocks || 0,
+          critical_attacks: firewallLogs.critical_attacks || 0
+        },
+        top_threats: {
+          ips: firewallLogs.top_ips || [],
+          rules: firewallLogs.top_rules || [],
+          countries: firewallLogs.top_countries || []
+        },
+        recent_blocks: firewallLogs.recent_blocks || []
+      },
+      success: true
+    };
+
+    // Update or insert the website_data record
+    const upsertQuery = `
+      INSERT INTO website_data (website_id, network_layer, fetched_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (website_id)
+      DO UPDATE SET 
+        network_layer = $2,
+        fetched_at = NOW()
     `;
-    await pool.query(updateQuery, [JSON.stringify(networkStatus), websiteId]);
+    
+    await pool.query(upsertQuery, [websiteId, JSON.stringify(processedData)]);
 
     logger.info({
-      message: 'Updated network_status with firewall logs',
+      message: 'Updated network_layer with firewall logs data',
       websiteId,
-      logsCount: logs.length
+      recentBlocksCount: processedData.data.recent_blocks.length,
+      totalBlocks: processedData.data.summary.total_blocks
     }, {
       component: 'database',
-      event: 'update_firewall_logs_success'
+      event: 'update_network_layer_success'
     });
   } catch (error) {
     logger.error({
-      message: 'Error updating network_status with firewall logs',
+      message: 'Error updating network_layer',
       error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
       websiteId
     }, {
       component: 'database',
-      event: 'update_firewall_logs_error'
+      event: 'update_network_layer_error'
     });
     throw error;
   }

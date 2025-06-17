@@ -134,8 +134,8 @@ router.post('/:domain/toggle', async (req, res) => {
     
     // Fetch firewall logs and update the network_layer column
     try {
-      // Default to 30 days period for firewall logs
-      const firewallLogs = await api.getFirewallLogs(30);
+      // Use 7 days period for firewall logs as specified
+      const firewallLogs = await api.getFirewallLogs(7);
       
       const { updateNetworkLayer } = await import('../config/db');
       await updateNetworkLayer(String(website.id), firewallLogs);

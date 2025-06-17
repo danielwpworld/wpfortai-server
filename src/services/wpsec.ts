@@ -49,7 +49,10 @@ export class WPSecAPI {
     this.domain = domain;
   }
 
-  private async request<T>(endpoint: string, options: Partial<Omit<RequestInit, 'body'>> & { body?: any } = {}): Promise<T> {
+  private async request<T>(endpoint: string, options: Partial<Omit<RequestInit, 'body'>> & { 
+    body?: any, 
+    queryParams?: Record<string, string> 
+  } = {}): Promise<T> {
     const requestOptions: RequestInit = {
       ...options,
       headers: {
@@ -65,6 +68,21 @@ export class WPSecAPI {
     const baseUrl = this.domain.startsWith('http') ? this.domain : `https://${this.domain}`;
     const url = new URL(baseUrl);
     url.searchParams.append('wpsec_endpoint', endpoint);
+    
+    // Handle custom headers that should be converted to query parameters
+    const customHeaders = requestOptions.headers as Record<string, string>;
+    if (customHeaders && 'x-period' in customHeaders) {
+      url.searchParams.append('period', customHeaders['x-period']);
+      // Remove from headers as it's now in the URL
+      delete customHeaders['x-period'];
+    }
+    
+    // Add any additional query parameters
+    if (options.queryParams) {
+      Object.entries(options.queryParams).forEach(([key, value]) => {
+        url.searchParams.append(key, value);
+      });
+    }
 
     const fetchFn = await initFetch();
     const response = await fetchFn(url.toString(), requestOptions);
@@ -130,9 +148,15 @@ export class WPSecAPI {
     return this.request<FirewallStatus>('firewall/status');
   }
 
-  async getFirewallLogs(period?: number): Promise<FirewallLog[]> {
-    const endpoint = period ? `firewall/logs?period=${period}` : 'firewall/logs';
-    return this.request<FirewallLog[]>(endpoint);
+  async getFirewallLogs(period: number = 7): Promise<FirewallLog[]> {
+    // The period parameter should be passed as a query parameter, not in the endpoint path
+    // The WPSec API expects: ?wpsec_endpoint=firewall/logs&period=7
+    return this.request<FirewallLog[]>('firewall/logs', {
+      method: 'GET',
+      headers: {
+        'x-period': String(period)
+      }
+    });
   }
 
   async whitelistFirewallIP(ip: string, action: 'add' | 'remove'): Promise<void> {

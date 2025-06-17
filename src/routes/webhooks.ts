@@ -500,12 +500,30 @@ router.post('/core-reinstall-progress', async (req, res) => {
  */
 router.post('/core-reinstall-complete', async (req, res) => {
   try {
-    const { operation_id, status, message, completed_at, domain } = req.body;
+    const { operation_id, status, message, completed_at, domain: requestDomain } = req.body;
     if (!operation_id) {
       return res.status(400).json({ error: 'operation_id is required' });
     }
+    
+    // Get domain from Redis if not provided in request
+    let domain = requestDomain;
     if (!domain) {
-      return res.status(400).json({ error: 'domain is required' });
+      // Try to get the core reinstall data from Redis to extract the domain
+      const reinstallData = await CoreReinstallStore.getCoreReinstall(operation_id);
+      if (reinstallData && reinstallData.domain) {
+        domain = reinstallData.domain;
+        logger.info({
+          message: 'Retrieved domain from Redis for core-reinstall-complete',
+          operation_id,
+          domain
+        });
+      } else {
+        logger.error({
+          message: 'Domain not provided and not found in Redis',
+          operation_id
+        });
+        return res.status(400).json({ error: 'domain is required' });
+      }
     }
     
     // First, get the website to ensure it exists and get its UUID

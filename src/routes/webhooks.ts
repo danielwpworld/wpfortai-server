@@ -500,24 +500,96 @@ router.post('/core-reinstall-progress', async (req, res) => {
  */
 router.post('/core-reinstall-complete', async (req, res) => {
   try {
-    const { operation_id, status, message, completed_at } = req.body;
+    const { operation_id, status, message, completed_at, domain } = req.body;
     if (!operation_id) {
       return res.status(400).json({ error: 'operation_id is required' });
     }
-    await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message, completed_at });
-    // Update DB as well
-    try {
-      const updateCoreReinstallRecord = (await import('../config/db')).updateCoreReinstallRecord;
-      await updateCoreReinstallRecord(operation_id, { status, message });
-    } catch (dbError) {
-      const err = dbError instanceof Error ? dbError : new Error(String(dbError));
-      logger.error({ message: 'Failed to update website_core_reinstalls record after core-reinstall-complete', error: err, operation_id }, {
-        component: 'core-reinstall-webhook',
-        event: 'core_reinstall_db_update_error'
-      });
-      // Do not fail the webhook if DB update fails, just log
+    if (!domain) {
+      return res.status(400).json({ error: 'domain is required' });
     }
-    res.json({ success: true });
+    
+    // First, get the website to ensure it exists and get its UUID
+    const { getWebsiteByDomain } = await import('../config/db');
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      logger.error({
+        message: 'Website not found for core-reinstall-complete webhook',
+        domain,
+        operation_id
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Perform a core-check to get the latest core integrity data
+    try {
+      logger.info({
+        message: 'Running core-check after core reinstall completion',
+        domain,
+        operation_id
+      }, {
+        component: 'core-reinstall-webhook',
+        event: 'core_check_start'
+      });
+      
+      const { WPSecAPI } = await import('../services/wpsec');
+      const api = new WPSecAPI(domain);
+      const coreCheckResult = await api.checkCoreIntegrity();
+      
+      // Update the wpcore_layer in website_data
+      const pool = (await import('../config/db')).default;
+      await pool.query(
+        `UPDATE website_data SET wpcore_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+        [coreCheckResult, website.id] // website.id is a UUID
+      );
+      
+      logger.info({
+        message: 'wpcore_layer updated after core-reinstall completion',
+        domain,
+        operation_id
+      }, {
+        component: 'core-reinstall-webhook',
+        event: 'wpcore_layer_updated'
+      });
+      
+      // Now update the Redis status and DB record
+      await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message, completed_at });
+      
+      // Update DB record as well
+      const { updateCoreReinstallRecord } = await import('../config/db');
+      await updateCoreReinstallRecord(operation_id, { status, message });
+      
+      res.json({ success: true });
+    } catch (coreCheckError) {
+      const err = coreCheckError instanceof Error ? coreCheckError : new Error(String(coreCheckError));
+      logger.error({
+        message: 'Failed to perform core-check after core reinstall completion',
+        error: err,
+        domain,
+        operation_id
+      }, {
+        component: 'core-reinstall-webhook',
+        event: 'core_check_error'
+      });
+      
+      // Still update Redis and DB with the status from the webhook
+      await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message, completed_at });
+      
+      try {
+        const { updateCoreReinstallRecord } = await import('../config/db');
+        await updateCoreReinstallRecord(operation_id, { status, message });
+      } catch (dbError) {
+        logger.error({
+          message: 'Failed to update website_core_reinstalls record after core-reinstall-complete',
+          error: dbError instanceof Error ? dbError : new Error(String(dbError)),
+          operation_id
+        }, {
+          component: 'core-reinstall-webhook',
+          event: 'core_reinstall_db_update_error'
+        });
+      }
+      
+      res.json({ success: true });
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     logger.error({ message: 'Error in core-reinstall-complete webhook', error: err });

@@ -86,56 +86,15 @@ router.post('/:domain/core-reinstall', async (req, res) => {
       // Optionally: don't fail the endpoint if DB insert fails, just log
     }
 
-    // Schedule a delayed core-check to update the database after core reinstall completes
-    setTimeout(async () => {
-      try {
-        logger.info({
-          message: 'Running delayed core-check after core reinstall',
-          domain,
-          operation_id
-        }, {
-          component: 'wordpress-controller',
-          event: 'delayed_core_check_start'
-        });
-
-        // Run core-check and update wpcore_layer
-        const api = new WPSecAPI(domain);
-        const coreCheckResult = await api.checkCoreIntegrity();
-
-        // Update website_core_reinstalls record as completed
-        const { updateCoreReinstallRecord } = await import('../config/db');
-        await updateCoreReinstallRecord(operation_id, {
-          status: 'completed'
-        });
-        
-        // Update the wpcore_layer in website_data
-        const pool = (await import('../config/db')).default;
-        await pool.query(
-          `UPDATE website_data SET wpcore_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
-          [coreCheckResult, website.id]
-        );
-
-        logger.info({
-          message: 'Delayed core-check completed successfully after core reinstall',
-          domain,
-          operation_id
-        }, {
-          component: 'wordpress-controller',
-          event: 'delayed_core_check_success'
-        });
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        logger.error({
-          message: 'Error in delayed core-check after core reinstall',
-          error: err,
-          domain,
-          operation_id
-        }, {
-          component: 'wordpress-controller',
-          event: 'wpcore_layer_update_failed_after_core_reinstall'
-        });
-      }
-    }, 30000); // 30 second delay
+    // Core-check and wpcore_layer update will be handled by the core-reinstall-complete webhook
+    logger.info({
+      message: 'Core reinstall initiated, wpcore_layer will be updated when complete webhook is received',
+      domain,
+      operation_id
+    }, {
+      component: 'wordpress-controller',
+      event: 'core_reinstall_initiated'
+    });
     
     res.json(result);
   } catch (error) {

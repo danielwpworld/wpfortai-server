@@ -84,6 +84,57 @@ router.post('/:domain/core-reinstall', async (req, res) => {
       // Optionally: don't fail the endpoint if DB insert fails, just log
     }
 
+    // Schedule a delayed core-check to update the database after core reinstall completes
+    setTimeout(async () => {
+      try {
+        logger.info({
+          message: 'Running delayed core-check after core-reinstall',
+          domain,
+          operation_id,
+          websiteId: website.id
+        }, {
+          component: 'wordpress-controller',
+          event: 'delayed_core_check_start'
+        });
+        
+        const coreCheckResult = await api.checkCoreIntegrity();
+        
+        // Update the wpcore_layer in website_data
+        const pool = (await import('../config/db')).default;
+        await pool.query(
+          `UPDATE website_data SET wpcore_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+          [coreCheckResult, website.id]
+        );
+        
+        // Also update the core reinstall record status
+        await pool.query(
+          `UPDATE website_core_reinstalls SET status = $1, completed_at = NOW() WHERE operation_id = $2`,
+          ['completed', operation_id]
+        );
+        
+        logger.info({
+          message: 'wpcore_layer updated after delayed core-check',
+          domain,
+          operation_id,
+          websiteId: website.id
+        }, {
+          component: 'wordpress-controller',
+          event: 'wpcore_layer_updated_after_core_reinstall'
+        });
+      } catch (coreErr) {
+        logger.error({
+          message: 'Failed to update wpcore_layer after delayed core-check',
+          error: coreErr instanceof Error ? coreErr : new Error(String(coreErr) || 'Unknown error'),
+          domain,
+          operation_id,
+          websiteId: website.id
+        }, {
+          component: 'wordpress-controller',
+          event: 'wpcore_layer_update_failed_after_core_reinstall'
+        });
+      }
+    }, 30000); // 30 second delay
+    
     res.json(result);
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');

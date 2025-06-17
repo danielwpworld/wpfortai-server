@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import pool, { getWebsiteByDomain } from '../config/db';
 import { WPSecAPI } from '../services/wpsec';
 import type { FirewallStatus, FirewallLog } from '../types/wpsec';
+import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
 
 const router = Router();
@@ -107,35 +107,47 @@ router.post('/:domain/toggle', async (req, res) => {
     
     // Get the updated firewall status to confirm the change
     logger.debug({
-      message: 'Getting updated firewall status',
+      message: 'Fetching updated firewall status after toggle',
       domain
     }, {
       component: 'firewall-controller',
-      event: 'get_firewall_status'
+      event: 'fetch_updated_firewall_status'
     });
     
-    const firewallStatus = await api.getFirewallStatus();
+    const updatedStatus = await api.getFirewallStatus();
     
-    // Update the network_layer in the website_data table
-    logger.debug({
-      message: 'Updating network_layer in database',
-      domain,
-      firewallStatus
-    }, {
-      component: 'firewall-controller',
-      event: 'update_network_layer'
-    });
-    
-    await pool.query(
-      `UPDATE website_data SET network_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
-      [firewallStatus, website.id] // website.id is a UUID
-    );
+    // Update the network_status field in website_data
+    try {
+      const pool = (await import('../config/db')).default;
+      await pool.query(
+        `UPDATE website_data SET network_status = $1, fetched_at = NOW() WHERE website_id = $2`,
+        [JSON.stringify(updatedStatus), website.id] // website.id is a UUID
+      );
+      
+      logger.info({
+        message: 'Updated network_status with new firewall status',
+        domain,
+        firewallActive: updatedStatus.active
+      }, {
+        component: 'firewall-controller',
+        event: 'network_status_updated'
+      });
+    } catch (updateError) {
+      logger.warn({
+        message: 'Failed to update network_status, but firewall was toggled',
+        domain,
+        error: updateError
+      }, {
+        component: 'firewall-controller',
+        event: 'network_status_update_failed'
+      });
+      // Continue since the primary operation succeeded
+    }
 
     logger.info({
-      message: 'Firewall status toggled and network_layer updated successfully',
+      message: 'Firewall status toggled successfully',
       domain,
-      newState: active,
-      firewallStatus
+      newState: updatedStatus.active
     }, {
       component: 'firewall-controller',
       event: 'firewall_toggled'
@@ -143,7 +155,7 @@ router.post('/:domain/toggle', async (req, res) => {
 
     res.json({ 
       success: true,
-      firewall_status: firewallStatus
+      status: updatedStatus
     });
   } catch (error) {
     console.error('Error toggling firewall:', error);

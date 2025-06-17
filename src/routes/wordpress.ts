@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
+import { CoreReinstallStore } from '../services/core-reinstall-store';
+import redis from '../config/redis';
 
 const router = Router();
 
@@ -46,14 +48,14 @@ router.post('/:domain/core-reinstall', async (req, res) => {
     });
 
     // Store in Redis (CoreReinstallStore)
-    const { operation_id, status, message, version, started_at, check_status_endpoint } = result;
+    const { operation_id, message, version, started_at, check_status_endpoint } = result;
     const { CoreReinstallStore } = await import('../services/core-reinstall-store');
     await CoreReinstallStore.createCoreReinstall(domain, {
       domain,
       operation_id,
       started_at,
-      status,
-      message,
+      status: 'in_progress', // Explicitly set status to in_progress
+      message: message || 'Core reinstall started',
       version,
       check_status_endpoint
     });
@@ -88,16 +90,23 @@ router.post('/:domain/core-reinstall', async (req, res) => {
     setTimeout(async () => {
       try {
         logger.info({
-          message: 'Running delayed core-check after core-reinstall',
+          message: 'Running delayed core-check after core reinstall',
           domain,
-          operation_id,
-          websiteId: website.id
+          operation_id
         }, {
           component: 'wordpress-controller',
           event: 'delayed_core_check_start'
         });
-        
+
+        // Run core-check and update wpcore_layer
+        const api = new WPSecAPI(domain);
         const coreCheckResult = await api.checkCoreIntegrity();
+
+        // Update website_core_reinstalls record as completed
+        const { updateCoreReinstallRecord } = await import('../config/db');
+        await updateCoreReinstallRecord(operation_id, {
+          status: 'completed'
+        });
         
         // Update the wpcore_layer in website_data
         const pool = (await import('../config/db')).default;
@@ -105,29 +114,22 @@ router.post('/:domain/core-reinstall', async (req, res) => {
           `UPDATE website_data SET wpcore_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
           [coreCheckResult, website.id]
         );
-        
-        // Also update the core reinstall record status
-        await pool.query(
-          `UPDATE website_core_reinstalls SET status = $1, completed_at = NOW() WHERE operation_id = $2`,
-          ['completed', operation_id]
-        );
-        
+
         logger.info({
-          message: 'wpcore_layer updated after delayed core-check',
+          message: 'Delayed core-check completed successfully after core reinstall',
           domain,
-          operation_id,
-          websiteId: website.id
+          operation_id
         }, {
           component: 'wordpress-controller',
-          event: 'wpcore_layer_updated_after_core_reinstall'
+          event: 'delayed_core_check_success'
         });
-      } catch (coreErr) {
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
         logger.error({
-          message: 'Failed to update wpcore_layer after delayed core-check',
-          error: coreErr instanceof Error ? coreErr : new Error(String(coreErr) || 'Unknown error'),
+          message: 'Error in delayed core-check after core reinstall',
+          error: err,
           domain,
-          operation_id,
-          websiteId: website.id
+          operation_id
         }, {
           component: 'wordpress-controller',
           event: 'wpcore_layer_update_failed_after_core_reinstall'
@@ -144,6 +146,65 @@ router.post('/:domain/core-reinstall', async (req, res) => {
     }, {
       component: 'wordpress-controller',
       event: 'core_reinstall_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/wordpress/:domain/core-reinstall-status
+ * Returns the status of the most recent core reinstall operation for a domain
+ */
+router.get('/:domain/core-reinstall-status', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // First check if there's an active core reinstall in Redis
+    const operationId = await redis.get(`active_core_reinstall:${domain}`);
+    
+    if (operationId) {
+      // Get the core reinstall data from Redis
+      const reinstallData = await CoreReinstallStore.getCoreReinstall(operationId);
+      if (reinstallData) {
+        // Convert the Redis data to a response object
+        return res.json({
+          status: reinstallData.status,
+          message: reinstallData.message,
+          operation_id: reinstallData.operation_id,
+          started_at: reinstallData.started_at,
+          completed_at: reinstallData.completed_at || null,
+          version: reinstallData.version
+        });
+      }
+    }
+
+    // If no active reinstall found in Redis, check the database for the most recent one
+    const pool = (await import('../config/db')).default;
+    const result = await pool.query(
+      `SELECT operation_id, status, message, started_at, completed_at 
+       FROM website_core_reinstalls 
+       WHERE website_id = $1 
+       ORDER BY started_at DESC LIMIT 1`,
+      [website.id] // website.id is a UUID
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({ status: 'none', message: 'No core reinstall operations found' });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error getting core reinstall status',
+      error: err
+    }, {
+      component: 'wordpress-controller',
+      event: 'core_reinstall_status_error'
     });
     res.status(500).json({ error: err.message });
   }

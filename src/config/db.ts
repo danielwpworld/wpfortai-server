@@ -992,23 +992,27 @@ export async function updateNetworkLayer(
       networkLayer = checkResult.rows[0].network_layer || {};
     }
 
+    // The API response has a different structure than we expected
+    // It contains a success field and a data field that contains all the actual data
+    const apiData = firewallLogs.data || firewallLogs;
+    
     // Process the firewall logs into the expected network_layer format
     const processedData = {
       data: {
         trends: {
-          attacks_by_day: firewallLogs.trends?.attacks_by_day || []
+          attacks_by_day: apiData.trends?.attacks_by_day || []
         },
         summary: {
-          period_days: firewallLogs.period_days || "30",
-          total_blocks: firewallLogs.total_blocks || 0,
-          critical_attacks: firewallLogs.critical_attacks || 0
+          period_days: "7", // We're using 7 days as the period
+          total_blocks: apiData.summary?.total_blocks || 0,
+          critical_attacks: apiData.summary?.critical_attacks || 0
         },
         top_threats: {
-          ips: firewallLogs.top_ips || [],
-          rules: firewallLogs.top_rules || [],
-          countries: firewallLogs.top_countries || []
+          ips: apiData.top_threats?.ips || [],
+          rules: apiData.top_threats?.rules || [],
+          countries: apiData.top_threats?.countries || []
         },
-        recent_blocks: firewallLogs.recent_blocks || []
+        recent_blocks: apiData.recent_blocks || []
       },
       success: true
     };

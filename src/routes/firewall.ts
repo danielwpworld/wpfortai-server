@@ -1,7 +1,7 @@
 import { Router } from 'express';
+import pool, { getWebsiteByDomain } from '../config/db';
 import { WPSecAPI } from '../services/wpsec';
 import type { FirewallStatus, FirewallLog } from '../types/wpsec';
-import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
 
 const router = Router();
@@ -104,17 +104,47 @@ router.post('/:domain/toggle', async (req, res) => {
     });
 
     await api.toggleFirewall(active);
+    
+    // Get the updated firewall status to confirm the change
+    logger.debug({
+      message: 'Getting updated firewall status',
+      domain
+    }, {
+      component: 'firewall-controller',
+      event: 'get_firewall_status'
+    });
+    
+    const firewallStatus = await api.getFirewallStatus();
+    
+    // Update the network_layer in the website_data table
+    logger.debug({
+      message: 'Updating network_layer in database',
+      domain,
+      firewallStatus
+    }, {
+      component: 'firewall-controller',
+      event: 'update_network_layer'
+    });
+    
+    await pool.query(
+      `UPDATE website_data SET network_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+      [firewallStatus, website.id] // website.id is a UUID
+    );
 
     logger.info({
-      message: 'Firewall status toggled successfully',
+      message: 'Firewall status toggled and network_layer updated successfully',
       domain,
-      newState: active
+      newState: active,
+      firewallStatus
     }, {
       component: 'firewall-controller',
       event: 'firewall_toggled'
     });
 
-    res.json({ success: true });
+    res.json({ 
+      success: true,
+      firewall_status: firewallStatus
+    });
   } catch (error) {
     console.error('Error toggling firewall:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');

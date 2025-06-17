@@ -105,41 +105,29 @@ router.post('/:domain/toggle', async (req, res) => {
 
     await api.toggleFirewall(active);
     
-    // Get the updated firewall status to confirm the change
-    logger.debug({
-      message: 'Fetching updated firewall status after toggle',
-      domain
-    }, {
-      component: 'firewall-controller',
-      event: 'fetch_updated_firewall_status'
-    });
-    
-    const updatedStatus = await api.getFirewallStatus();
-    
-    // Update the network_status field in website_data
+    // Update the network_status.active field in the database
     try {
-      const pool = (await import('../config/db')).default;
-      await pool.query(
-        `UPDATE website_data SET network_status = $1, fetched_at = NOW() WHERE website_id = $2`,
-        [JSON.stringify(updatedStatus), website.id] // website.id is a UUID
-      );
+      const { updateFirewallStatus } = await import('../config/db');
+      await updateFirewallStatus(String(website.id), active);
       
       logger.info({
-        message: 'Updated network_status with new firewall status',
+        message: 'Updated network_status.active in database',
         domain,
-        firewallActive: updatedStatus.active
+        websiteId: website.id,
+        active
       }, {
         component: 'firewall-controller',
-        event: 'network_status_updated'
+        event: 'firewall_status_db_updated'
       });
-    } catch (updateError) {
+    } catch (dbError) {
       logger.warn({
-        message: 'Failed to update network_status, but firewall was toggled',
+        message: 'Failed to update network_status.active in database, but firewall was toggled',
         domain,
-        error: updateError
+        active,
+        error: dbError
       }, {
         component: 'firewall-controller',
-        event: 'network_status_update_failed'
+        event: 'firewall_status_db_update_failed'
       });
       // Continue since the primary operation succeeded
     }
@@ -147,16 +135,13 @@ router.post('/:domain/toggle', async (req, res) => {
     logger.info({
       message: 'Firewall status toggled successfully',
       domain,
-      newState: updatedStatus.active
+      newState: active
     }, {
       component: 'firewall-controller',
       event: 'firewall_toggled'
     });
 
-    res.json({ 
-      success: true,
-      status: updatedStatus
-    });
+    res.json({ success: true });
   } catch (error) {
     console.error('Error toggling firewall:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');
@@ -209,6 +194,32 @@ router.get('/:domain/logs', async (req, res) => {
       component: 'firewall-controller',
       event: 'firewall_logs_retrieved'
     });
+    
+    // Update network_status column with firewall logs
+    try {
+      const { updateFirewallLogs } = await import('../config/db');
+      await updateFirewallLogs(String(website.id), logs);
+      
+      logger.info({
+        message: 'Updated network_status with firewall logs in database',
+        domain,
+        websiteId: website.id,
+        logsCount: logs.length || 0
+      }, {
+        component: 'firewall-controller',
+        event: 'firewall_logs_db_updated'
+      });
+    } catch (dbError) {
+      logger.warn({
+        message: 'Failed to update network_status with firewall logs in database',
+        domain,
+        error: dbError
+      }, {
+        component: 'firewall-controller',
+        event: 'firewall_logs_db_update_failed'
+      });
+      // Continue since we can still return the logs to the client
+    }
 
     res.json(logs);
   } catch (error) {

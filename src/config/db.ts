@@ -947,6 +947,197 @@ export async function updateWebsiteScanResult(websiteId: string | number, scanId
  * @param listType The type of list (whitelist or blocklist)
  * @param action The action performed (add/remove for whitelist, block/unblock for blocklist)
  */
+/**
+ * Updates the network_status.active field in the website_data table when firewall is toggled
+ * @param websiteId The UUID of the website
+ * @param active Whether the firewall is active (1) or inactive (0)
+ */
+/**
+ * Updates the network_status field in the website_data table with firewall logs
+ * @param websiteId The UUID of the website
+ * @param logs The firewall logs from WPSec API
+ */
+export async function updateFirewallLogs(
+  websiteId: string,
+  logs: any[]
+): Promise<void> {
+  try {
+    logger.debug({
+      message: 'Updating network_status with firewall logs',
+      websiteId,
+      logsCount: logs.length
+    }, {
+      component: 'database',
+      event: 'update_firewall_logs'
+    });
+
+    // First, check if website_data record exists
+    const checkQuery = `
+      SELECT id, network_status FROM website_data 
+      WHERE website_id = $1
+    `;
+    const checkResult = await pool.query(checkQuery, [websiteId]);
+    
+    if (checkResult.rows.length === 0) {
+      logger.debug({
+        message: 'No website_data record found, will be created by background job',
+        websiteId
+      }, {
+        component: 'database',
+        event: 'update_firewall_logs_no_record'
+      });
+      return;
+    }
+
+    // Get current network_status or initialize if not exists
+    const networkStatus = checkResult.rows[0].network_status || {};
+    
+    // Initialize stats if not exists
+    if (!networkStatus.stats) {
+      networkStatus.stats = {};
+    }
+    
+    // Update the recent_blocks with the logs
+    networkStatus.stats.recent_blocks = logs;
+    
+    // Calculate top IPs (most frequent in logs)
+    const ipCounts: Record<string, number> = {};
+    logs.forEach(log => {
+      if (log.ip) {
+        ipCounts[log.ip] = (ipCounts[log.ip] || 0) + 1;
+      }
+    });
+    
+    // Sort IPs by count and take top 5
+    const topIps = Object.entries(ipCounts)
+      .sort(([, countA], [, countB]) => (countB as number) - (countA as number))
+      .slice(0, 5)
+      .map(([ip, count]) => ({ ip, count }));
+    
+    networkStatus.stats.top_ips = topIps;
+    
+    // Calculate top rules
+    const ruleCounts: Record<string, number> = {};
+    logs.forEach(log => {
+      if (log.rules && Array.isArray(log.rules)) {
+        log.rules.forEach((rule: any) => {
+          if (rule.rule) {
+            ruleCounts[rule.rule] = (ruleCounts[rule.rule] || 0) + 1;
+          }
+        });
+      }
+    });
+    
+    // Sort rules by count and take top 5
+    const topRules = Object.entries(ruleCounts)
+      .sort(([, countA], [, countB]) => (countB as number) - (countA as number))
+      .slice(0, 5)
+      .map(([rule, count]) => ({ rule, count }));
+    
+    networkStatus.stats.top_rules = topRules;
+    
+    // Count total blocks
+    networkStatus.stats.total_blocked = logs.length.toString();
+    
+    // Update the database
+    const updateQuery = `
+      UPDATE website_data 
+      SET network_status = $1, 
+          fetched_at = NOW() 
+      WHERE website_id = $2
+    `;
+    await pool.query(updateQuery, [JSON.stringify(networkStatus), websiteId]);
+
+    logger.info({
+      message: 'Updated network_status with firewall logs',
+      websiteId,
+      logsCount: logs.length
+    }, {
+      component: 'database',
+      event: 'update_firewall_logs_success'
+    });
+  } catch (error) {
+    logger.error({
+      message: 'Error updating network_status with firewall logs',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      websiteId
+    }, {
+      component: 'database',
+      event: 'update_firewall_logs_error'
+    });
+    throw error;
+  }
+}
+
+export async function updateFirewallStatus(
+  websiteId: string,
+  active: boolean
+): Promise<void> {
+  try {
+    logger.debug({
+      message: 'Updating network_status.active after firewall toggle',
+      websiteId,
+      active
+    }, {
+      component: 'database',
+      event: 'update_firewall_status'
+    });
+
+    // First, check if website_data record exists
+    const checkQuery = `
+      SELECT id, network_status FROM website_data 
+      WHERE website_id = $1
+    `;
+    const checkResult = await pool.query(checkQuery, [websiteId]);
+    
+    if (checkResult.rows.length === 0) {
+      logger.debug({
+        message: 'No website_data record found, will be created by background job',
+        websiteId
+      }, {
+        component: 'database',
+        event: 'update_firewall_status_no_record'
+      });
+      return;
+    }
+
+    // Get current network_status or initialize if not exists
+    const networkStatus = checkResult.rows[0].network_status || {};
+    
+    // Update the active field - convert boolean to string "1" or "0"
+    networkStatus.active = active ? "1" : "0";
+
+    // Update the database
+    const updateQuery = `
+      UPDATE website_data 
+      SET network_status = $1, 
+          fetched_at = NOW() 
+      WHERE website_id = $2
+    `;
+    await pool.query(updateQuery, [JSON.stringify(networkStatus), websiteId]);
+
+    logger.info({
+      message: 'Updated network_status.active after firewall toggle',
+      websiteId,
+      active
+    }, {
+      component: 'database',
+      event: 'update_firewall_status_success'
+    });
+  } catch (error) {
+    logger.error({
+      message: 'Error updating network_status.active',
+      error: error instanceof Error ? error : new Error(String(error) || 'Unknown error'),
+      websiteId,
+      active
+    }, {
+      component: 'database',
+      event: 'update_firewall_status_error'
+    });
+    throw error;
+  }
+}
+
 export async function updateNetworkStatus(
   websiteId: string,
   ip: string,

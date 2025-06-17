@@ -551,12 +551,28 @@ router.post('/core-reinstall-complete', async (req, res) => {
         event: 'wpcore_layer_updated'
       });
       
-      // Now update the Redis status and DB record
-      await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message, completed_at });
+      // Now update the Redis status and DB record - explicitly set status to 'completed'
+      await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { 
+        status: 'completed', 
+        message: message || 'Core reinstall completed successfully', 
+        completed_at: completed_at || new Date().toISOString() 
+      });
       
       // Update DB record as well
       const { updateCoreReinstallRecord } = await import('../config/db');
-      await updateCoreReinstallRecord(operation_id, { status, message });
+      await updateCoreReinstallRecord(operation_id, { 
+        status: 'completed', 
+        message: message || 'Core reinstall completed successfully' 
+      });
+      
+      logger.info({
+        message: 'Core reinstall marked as completed in Redis and database',
+        domain,
+        operation_id
+      }, {
+        component: 'core-reinstall-webhook',
+        event: 'core_reinstall_completed'
+      });
       
       res.json({ success: true });
     } catch (coreCheckError) {
@@ -571,12 +587,28 @@ router.post('/core-reinstall-complete', async (req, res) => {
         event: 'core_check_error'
       });
       
-      // Still update Redis and DB with the status from the webhook
-      await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message, completed_at });
+      // Still update Redis and DB with completed status even if core-check failed
+      await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { 
+        status: 'completed', 
+        message: message || 'Core reinstall completed but core-check failed', 
+        completed_at: completed_at || new Date().toISOString() 
+      });
       
       try {
         const { updateCoreReinstallRecord } = await import('../config/db');
-        await updateCoreReinstallRecord(operation_id, { status, message });
+        await updateCoreReinstallRecord(operation_id, { 
+          status: 'completed', 
+          message: message || 'Core reinstall completed but core-check failed' 
+        });
+        
+        logger.info({
+          message: 'Core reinstall marked as completed in Redis and database despite core-check failure',
+          domain,
+          operation_id
+        }, {
+          component: 'core-reinstall-webhook',
+          event: 'core_reinstall_completed_with_errors'
+        });
       } catch (dbError) {
         logger.error({
           message: 'Failed to update website_core_reinstalls record after core-reinstall-complete',

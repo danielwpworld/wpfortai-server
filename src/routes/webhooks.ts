@@ -350,7 +350,7 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
         totalDetections += file.detections.length;
       }
 
-      // If there are detections, create a notification
+      // If there are detections, create or update notification
       if (totalDetections > 0) {
         try {
           // Get website owner's UID
@@ -361,33 +361,67 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
           
           if (websiteResult.rows.length > 0) {
             const ownerUid = websiteResult.rows[0].uid;
+            const notificationType = 'malware_detection';
             
-            // Create notification
-            await pool.query(
-              `INSERT INTO user_notifications 
-               (uid, title, description, severity, created_by, website_id, domain)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-              [
-                ownerUid,
-                'Infections detected - scan results',
-                `${website.domain} is at risk`,
-                'Critical',
-                'Sentinel',
-                website.id,  // Add website_id as UUID
-                website.domain  // Add domain
-              ]
+            // Check if notification of this type already exists for this website
+            const existingNotificationResult = await pool.query(
+              `SELECT id FROM user_notifications 
+               WHERE website_id = $1 AND created_by = $2 AND uid = $3 AND title = $4`,
+              [website.id, 'Sentinel', ownerUid, 'Infections detected - scan results']
             );
             
-            logger.info({
-              message: 'Created notification for scan detections',
-              websiteId: website.id,
-              scanId: scan_id,
-              detectionsCount: totalDetections,
-              ownerUid
-            }, {
-              component: 'webhook',
-              event: 'notification_created'
-            });
+            if (existingNotificationResult.rows.length > 0) {
+              // Update existing notification
+              await pool.query(
+                `UPDATE user_notifications 
+                 SET description = $1, severity = $2, created_at = NOW(), read_at = NULL 
+                 WHERE id = $3`,
+                [
+                  `${website.domain} is at risk`,
+                  'Critical',
+                  existingNotificationResult.rows[0].id
+                ]
+              );
+              
+              logger.info({
+                message: 'Updated notification for scan detections',
+                websiteId: website.id,
+                scanId: scan_id,
+                detectionsCount: totalDetections,
+                ownerUid,
+                notificationId: existingNotificationResult.rows[0].id
+              }, {
+                component: 'webhook',
+                event: 'notification_updated'
+              });
+            } else {
+              // Create new notification
+              await pool.query(
+                `INSERT INTO user_notifications 
+                 (uid, title, description, severity, created_by, website_id, domain)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                  ownerUid,
+                  'Infections detected - scan results',
+                  `${website.domain} is at risk`,
+                  'Critical',
+                  'Sentinel',
+                  website.id,  // Add website_id as UUID
+                  website.domain  // Add domain
+                ]
+              );
+              
+              logger.info({
+                message: 'Created notification for scan detections',
+                websiteId: website.id,
+                scanId: scan_id,
+                detectionsCount: totalDetections,
+                ownerUid
+              }, {
+                component: 'webhook',
+                event: 'notification_created'
+              });
+            }
           }
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);

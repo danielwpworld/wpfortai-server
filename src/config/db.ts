@@ -1282,12 +1282,22 @@ export async function batchCreateScanDetections(
         valuesSql.push(`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`);
         
         // Add parameter values in the same order
+        // Ensure threat_score is converted to an integer
+        const threatScore = typeof detection.threat_score === 'string' 
+          ? parseInt(detection.threat_score, 10) || 0 
+          : Math.floor(Number(detection.threat_score) || 0);
+          
+        // Ensure confidence is converted to an integer
+        const confidence = typeof detection.confidence === 'string' 
+          ? parseInt(detection.confidence, 10) || 0 
+          : Math.floor(Number(detection.confidence) || 0);
+          
         params.push(
           websiteId,
           scanId,
           detection.file_path,
-          detection.threat_score || 0,
-          detection.confidence || 0,
+          threatScore,
+          confidence,
           normalizedDetectionType,
           detection.severity || 'low',
           detection.description || '',

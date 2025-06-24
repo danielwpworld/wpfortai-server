@@ -18,7 +18,7 @@ export interface StoredScanData {
 export class ScanStore {
   private static readonly SCAN_KEY_PREFIX = 'scan:';
   private static readonly ACTIVE_SCAN_KEY_PREFIX = 'active_scan:';
-  private static readonly SCAN_TTL = 60 * 60 * 24; // 24 hours in seconds
+  private static readonly SCAN_TTL = 60 * 60 * 2; // 2 hours in seconds
 
   static async createScan(domain: string, scanData: ScanStartResponse): Promise<void> {
     const storedData: StoredScanData = {

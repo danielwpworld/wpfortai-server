@@ -1842,7 +1842,7 @@ router.get('/:domain/detections', async (req, res) => {
       limit,
       offset,
       latestScanId,
-      threatScoreFilter: 'above 4'
+      threatScoreFilter: `equal to or above ${THREAT_SCORE_THRESHOLD}`
     }, {
       component: 'scan-controller',
       event: 'get_scan_detections'
@@ -1891,7 +1891,7 @@ router.get('/:domain/detections', async (req, res) => {
         FROM scan_detections sd
         LEFT JOIN website_scans ws ON sd.scan_id = ws.scan_id
         WHERE sd.website_id = $1
-          AND sd.threat_score > ${THREAT_SCORE_THRESHOLD}
+          AND sd.threat_score >= ${THREAT_SCORE_THRESHOLD}
           ${latestScanId ? 'AND sd.scan_id = $2' : ''}
           ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : 'AND sd.status = \'active\''}
           AND NOT EXISTS (
@@ -1949,7 +1949,7 @@ router.get('/:domain/detections', async (req, res) => {
         LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
         LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
         WHERE sd.website_id = $1
-          AND sd.threat_score > ${THREAT_SCORE_THRESHOLD}
+          AND sd.threat_score >= ${THREAT_SCORE_THRESHOLD}
           ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : ''}
           AND (qd.id IS NOT NULL OR dd.id IS NOT NULL)
         ORDER BY sd.file_hash, sd.file_path, sd.created_at DESC
@@ -1979,7 +1979,7 @@ router.get('/:domain/detections', async (req, res) => {
         LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
         LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
         WHERE sd.website_id = $1
-          AND sd.threat_score > ${THREAT_SCORE_THRESHOLD}
+          AND sd.threat_score >= ${THREAT_SCORE_THRESHOLD}
           ${latestScanId ? 'AND (sd.scan_id = $2 OR qd.id IS NOT NULL OR dd.id IS NOT NULL)' : ''}
           ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : ''}
       ) as count_query

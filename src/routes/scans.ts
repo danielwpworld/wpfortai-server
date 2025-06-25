@@ -4,6 +4,13 @@ import { ScanStore } from '../services/scan-store';
 import type { ScanStartResponse, ScanStatus, ScanResults, QuarantineResponse, QuarantineListResponse, QuarantineRestoreResponse, BatchOperationResponse } from '../types/wpsec';
 import { getWebsiteByDomain, createWebsiteScanResult, updateScanDetectionStatus, updateScanDetectionByPath, createQuarantinedDetection, removeQuarantinedDetection, moveQuarantinedToDeleted, default as pool } from '../config/db';
 import { logger } from '../services/logger';
+import { config } from 'dotenv';
+
+// Load environment variables
+config({ path: '.env.local' });
+
+// Get threat score threshold from environment or use default value of 4
+const THREAT_SCORE_THRESHOLD = parseInt(process.env.THREAT_SCORE_THRESHOLD || '4', 10);
 
 const router = Router();
 
@@ -1884,7 +1891,7 @@ router.get('/:domain/detections', async (req, res) => {
         FROM scan_detections sd
         LEFT JOIN website_scans ws ON sd.scan_id = ws.scan_id
         WHERE sd.website_id = $1
-          AND sd.threat_score > 4
+          AND sd.threat_score > ${THREAT_SCORE_THRESHOLD}
           ${latestScanId ? 'AND sd.scan_id = $2' : ''}
           ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : 'AND sd.status = \'active\''}
           AND NOT EXISTS (
@@ -1942,7 +1949,7 @@ router.get('/:domain/detections', async (req, res) => {
         LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
         LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
         WHERE sd.website_id = $1
-          AND sd.threat_score > 4
+          AND sd.threat_score > ${THREAT_SCORE_THRESHOLD}
           ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : ''}
           AND (qd.id IS NOT NULL OR dd.id IS NOT NULL)
         ORDER BY sd.file_hash, sd.file_path, sd.created_at DESC
@@ -1972,7 +1979,7 @@ router.get('/:domain/detections', async (req, res) => {
         LEFT JOIN quarantined_detections qd ON sd.id = qd.scan_detection_id
         LEFT JOIN deleted_detections dd ON sd.id = dd.scan_detection_id
         WHERE sd.website_id = $1
-          AND sd.threat_score > 4
+          AND sd.threat_score > ${THREAT_SCORE_THRESHOLD}
           ${latestScanId ? 'AND (sd.scan_id = $2 OR qd.id IS NOT NULL OR dd.id IS NOT NULL)' : ''}
           ${status ? `AND sd.status = $${latestScanId ? '3' : '2'}` : ''}
       ) as count_query

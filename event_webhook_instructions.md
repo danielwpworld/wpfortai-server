@@ -6,7 +6,7 @@ This document explains how to use the WPFort Pusher webhook to broadcast events 
 
 The server implements a webhook endpoint that:
 
-1. Receives events via POST requests to `/api/pusher-webhooks/broadcast`
+1. Receives events via POST requests to `/api/events/create`
 2. Extracts the domain, event, and data from the request body
 3. Looks up the website_id for the given domain (using UUID as per requirements)
 4. Broadcasts the event to a channel named after the website_id
@@ -29,10 +29,10 @@ operator
 ### WP CORE LAYER EVENTS ###
 ## WP CORE LAYER: DATA STRUCTURE
 {
-    "origin": "wpsec/backend/worker/frontend",
-    "vertical": "wpcore_layer",
     "event": "[one of the wpcore events]",
     "data": {
+        "origin": "wpsec/backend/worker/frontend",
+        "vertical": "wpcore_layer",
         "status": "success",
         "message": "WordPress core reinstall started",
         "operation_id": "wpsec_core_reinstall_685cac1d3fe1f9.94536193",
@@ -50,10 +50,10 @@ wpcore_layer.core_reinstall.failed
 ### FILESYSTEM LAYER EVENTS
 ## FILESYSTEM LAYER: DATA STRUCTURE
 {
-    "origin": "wpsec/backend/worker/frontend",
-    "vertical": "filesystem_layer",
     "event": "[one of the filesystem events]",
     "data": {
+        "origin": "wpsec/backend/worker/frontend",
+        "vertical": "filesystem_layer",
         "status": "success",
         "message": "Deep scan started",
         "operation_id": "wpsec_filesystem_scan_685cac1d3fe1f9.94536193",
@@ -78,10 +78,10 @@ filesystem_layer.file_delete.failed
 ### APPLICATION LAYER EVENTS
 ## APPLICATION LAYER: DATA STRUCTURE
 {
-    "origin": "wpsec/backend/worker/frontend",
-    "vertical": "application_layer",
     "event": "[one of the application events]",
     "data": {
+        "origin": "wpsec/backend/worker/frontend",
+        "vertical": "application_layer",
         "status": "success",
         "message": "Plugin updated",
         "metadata": {
@@ -106,10 +106,10 @@ application_layer.vulnerabilities_scan.failed
 ### FIREWALL LAYER EVENTS
 ## FIREWALL LAYER: DATA STRUCTURE
 {
-    "origin": "wpsec/backend/worker/frontend",
-    "vertical": "firewall_layer",
     "event": "[one of the firewall events]",
     "data": {
+        "origin": "wpsec/backend/worker/frontend",
+        "vertical": "firewall_layer",
         "status": "success",
         "message": "Attack blocked",
         "metadata": {
@@ -131,10 +131,10 @@ firewall_layer.toggled.off
 ### BACKUP LAYER EVENTS
 ## BACKUP LAYER: DATA STRUCTURE
 {
-    "origin": "wpsec/backend/worker/frontend",
-    "vertical": "backup",
     "event": "[one of the backup events]",
     "data": {
+        "origin": "wpsec/backend/worker/frontend",
+        "vertical": "backup",
         "status": "success",
         "message": "Backup completed",
         "metadata": {
@@ -157,10 +157,10 @@ backup.restore.failed
 ### OPERATOR LAYER EVENTS
 ## OPERATOR LAYER: DATA STRUCTURE
 {
-    "origin": "wpsec/backend/worker/frontend",
-    "vertical": "operator",
     "event": "[one of the operator events]",
     "data": {
+        "origin": "wpsec/backend/worker/frontend",
+        "vertical": "operator",
         "status": "success",
         "message": "Assessment completed",
         "metadata": {
@@ -185,10 +185,21 @@ operator.action.failed
 You can test the endpoint using curl:
 
 ```bash
-curl -X POST http://[wpfort-server]:3001/api/pusher-webhooks/broadcast \
+curl -X POST http://[wpfort-server]:3001/api/events/create \
   -H "Content-Type: application/json" \
   -H "x-wpfort-token: 123123123" \
-  -d '{"domain": "sub2.test-wpworld.uk", "event": "wpsec-activity-event", "data": {"test": "dataaaaaa"}}'
+  -d '{"domain": "sub2.test-wpworld.uk", "event": "wpcore_layer.core_reinstall.started", "data": {"event": "wpcore_layer.core_reinstall.started",
+            "data": {
+            "origin": "wpsec/backend/worker/frontend",
+            "vertical": "wpcore_layer",
+            "status": "success",
+            "message": "WordPress core reinstall started",
+            "operation_id": "wpsec_core_reinstall_685cac1d3fe1f9.94536193",
+            "version": "current",
+            "started_at": "2025-06-26 02:10:37",
+            "check_status_endpoint": "https://dev.wptech.group/wp-json/wpsec/v1/core-reinstall?operation_id=wpsec_core_reinstall_685cac1d3fe1f9.94536193"
+        }
+  }}'
 ```
 
 Example response:
@@ -196,10 +207,10 @@ Example response:
 ```json
 {
   "success": true,
-  "message": "Event broadcast successfully",
+  "message": "Event created successfully",
   "websiteId": "dc50c5ec-d5fe-4040-86f7-9615d45df55e",
   "channel": "dc50c5ec-d5fe-4040-86f7-9615d45df55e",
-  "event": "wpsec-activity-event"
+  "event": "wpcore_layer.core_reinstall.started"
 }
 ```
 

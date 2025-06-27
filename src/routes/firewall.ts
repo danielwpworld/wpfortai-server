@@ -109,7 +109,7 @@ router.post('/:domain/toggle', async (req, res) => {
     // Create and broadcast firewall toggle event
     try {
       // Determine event name based on toggle state
-      const eventName = active ? 'firewall_layer.toggled.on' : 'firewall_layer.toggled.off';
+      const eventName = active ? 'network_layer.firewall.toggled.on' : 'network_layer.firewall.toggled.off';
       
       // Construct event data
       const eventData = {
@@ -356,7 +356,7 @@ router.post('/:domain/whitelist', async (req, res) => {
         },
         body: JSON.stringify({
           domain,
-          event: 'firewall_layer.whitelist.updated',
+          event: 'network_layer.firewall.whitelist.updated',
           data: eventData
         })
       });
@@ -513,7 +513,7 @@ router.post('/:domain/blocklist', async (req, res) => {
         },
         body: JSON.stringify({
           domain,
-          event: 'firewall_layer.blacklist.updated',
+          event: 'network_layer.firewall.blacklist.updated',
           data: eventData
         })
       });

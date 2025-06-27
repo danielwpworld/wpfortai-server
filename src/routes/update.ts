@@ -40,7 +40,7 @@ router.post('/:domain/all', async (req, res) => {
         origin: 'backend',
         vertical: 'application_layer',
         status: 'success',
-        message: 'Performing update of all vulnerable plugins & Themes.',
+        message: 'Performing update of all vulnerable plugins & themes.',
         update_id: updateId,
         started_at: new Date().toISOString()
       };

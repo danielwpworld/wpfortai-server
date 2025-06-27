@@ -48,6 +48,8 @@ wpcore_layer.core_reinstall.completed
 wpcore_layer.core_reinstall.failed
 wpcore_layer.core_check.started
 wpcore_layer.core_check.completed
+wpcore_layer.permissions_fix.completed
+wpcore_layer.permissions_fix.failed
 
 ### FILESYSTEM LAYER EVENTS
 ## FILESYSTEM LAYER: DATA STRUCTURE
@@ -128,11 +130,11 @@ application_layer.vulnerabilities_scan.failed
 }
 
 ## FIREWALL LAYER: EVENTS
-firewall_layer.attacks.blocked
-firewall_layer.blacklist.updated
-firewall_layer.whitelist.updated
-firewall_layer.toggled.on
-firewall_layer.toggled.off
+network_layer.firewall.attacks.blocked
+network_layer.firewall.blacklist.updated
+network_layer.firewall.whitelist.updated
+network_layer.firewall.toggled.on
+network_layer.firewall.toggled.off
 
 ### BACKUP LAYER EVENTS
 ## BACKUP LAYER: DATA STRUCTURE

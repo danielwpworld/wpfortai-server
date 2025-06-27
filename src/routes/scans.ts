@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
+import fetch from 'node-fetch';
 import type { ScanStartResponse, ScanStatus, ScanResults, QuarantineResponse, QuarantineListResponse, QuarantineRestoreResponse, BatchOperationResponse } from '../types/wpsec';
 import { getWebsiteByDomain, createWebsiteScanResult, updateScanDetectionStatus, updateScanDetectionByPath, createQuarantinedDetection, removeQuarantinedDetection, moveQuarantinedToDeleted, default as pool } from '../config/db';
 import { logger } from '../services/logger';
@@ -112,6 +113,72 @@ router.post('/:domain/start', async (req, res) => {
       component: 'scan-controller',
       event: 'scan_started'
     });
+
+    // Create and broadcast filesystem scan started event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: 'Deep file scan started.',
+        metadata: {},
+        scan_id: scanData.scan_id,
+        started_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.filesystem_scan.started';
+      
+      // First store event in database, then broadcast
+      // Use the event endpoint for consistency
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast scan started event',
+          scanId: scanData.scan_id,
+          domain,
+          eventName
+        }, {
+          component: 'scan-controller',
+          event: 'scan_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create scan started event',
+          scanId: scanData.scan_id,
+          domain,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: 'scan_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating scan started event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        scanId: scanData.scan_id,
+        domain
+      }, {
+        component: 'scan-controller',
+        event: 'scan_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
 
     res.json(scanData);
   } catch (error: any) {
@@ -465,10 +532,147 @@ router.post('/:domain/quarantine', async (req, res) => {
       event: 'file_quarantined'
     });
 
+    // Create and broadcast file quarantine completion event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: 'File successfully quarantined.',
+        metadata: {
+          file_path,
+          quarantine_id: result.quarantine_id,
+          quarantine_path: result.quarantine_path || 'unknown'
+        },
+        completed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_quarantine.completed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast file quarantine completion event',
+          domain,
+          filePath: file_path,
+          eventName
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create file quarantine completion event',
+          domain,
+          filePath: file_path,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating file quarantine completion event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        filePath: file_path
+      }, {
+        component: 'scan-controller',
+        event: 'quarantine_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
+
     res.json({ status: 'success', quarantine_id: result.quarantine_id });
   } catch (error) {
     console.error('Error quarantining file:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');
+    
+    // Create and broadcast file quarantine failure event
+    try {
+      const domain = req.params.domain;
+      const file_path = req.body.file_path;
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: 'File quarantine operation failed.',
+        metadata: {
+          file_path,
+          error: err.message
+        },
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_quarantine.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast file quarantine failure event',
+          domain,
+          filePath: file_path,
+          eventName
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create file quarantine failure event',
+          domain,
+          filePath: file_path,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating file quarantine failure event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError))
+      }, {
+        component: 'scan-controller',
+        event: 'quarantine_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });
@@ -696,6 +900,73 @@ router.post('/:domain/whitelist', async (req, res) => {
       event: 'files_whitelisted'
     });
     
+    // Create and broadcast file whitelist completion event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: `${whitelistedResults.length} file(s) successfully whitelisted.`,
+        metadata: {
+          file_paths: filePaths,
+          successful_count: whitelistedResults.length,
+          total_count: filePaths.length,
+          reason: reason || null,
+          added_by: added_by || null
+        },
+        completed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_whitelist.completed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast file whitelist completion event',
+          domain,
+          eventName
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create file whitelist completion event',
+          domain,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating file whitelist completion event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain
+      }, {
+        component: 'whitelist-controller',
+        event: 'whitelist_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
+    
     res.json({ 
       status: 'success', 
       whitelisted: whitelistedResults,
@@ -716,6 +987,75 @@ router.post('/:domain/whitelist', async (req, res) => {
       event: 'whitelist_error'
     });
     const err = error instanceof Error ? error : new Error('Unknown error');
+    
+    // Create and broadcast file whitelist failure event
+    try {
+      const domain = errorDomain;
+      const file_path = req.body.file_path;
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: 'File whitelist operation failed.',
+        metadata: {
+          file_paths: Array.isArray(file_path) ? file_path : [file_path],
+          error: err.message
+        },
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_whitelist.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast file whitelist failure event',
+          domain,
+          filePath: file_path,
+          eventName
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_failure_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create file whitelist failure event',
+          domain,
+          filePath: file_path,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_failure_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating file whitelist failure event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError))
+      }, {
+        component: 'whitelist-controller',
+        event: 'whitelist_failure_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });
@@ -743,10 +1083,149 @@ router.post('/:domain/whitelist/remove', async (req, res) => {
       DELETE FROM whitelisted_detections
       WHERE website_id = $1 AND file_path = $2 AND file_hash = $3`;
     await pool.query(deleteQuery, [website.id, file_path, file_hash]);
+    
+    // Create and broadcast whitelist remove completion event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: 'File successfully removed from whitelist.',
+        metadata: {
+          file_path,
+          file_hash
+        },
+        completed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_whitelist_remove.completed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast whitelist remove completion event',
+          domain,
+          filePath: file_path,
+          eventName
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_remove_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create whitelist remove completion event',
+          domain,
+          filePath: file_path,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_remove_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating whitelist remove completion event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        filePath: file_path
+      }, {
+        component: 'whitelist-controller',
+        event: 'whitelist_remove_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Error removing file from whitelist:', error);
     const err = error instanceof Error ? error : new Error('Unknown error');
+    
+    // Create and broadcast whitelist remove failure event
+    try {
+      const domain = req.params.domain;
+      const file_path = req.body.file_path;
+      const file_hash = req.body.file_hash;
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: 'Failed to remove file from whitelist.',
+        metadata: {
+          file_path,
+          file_hash,
+          error: err.message
+        },
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_whitelist_remove.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast whitelist remove failure event',
+          domain,
+          filePath: file_path,
+          eventName
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_remove_failure_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create whitelist remove failure event',
+          domain,
+          filePath: file_path,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'whitelist-controller',
+          event: 'whitelist_remove_failure_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating whitelist remove failure event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError))
+      }, {
+        component: 'whitelist-controller',
+        event: 'whitelist_remove_failure_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });
@@ -918,6 +1397,96 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
       component: 'scan-controller',
       event: 'file_restored'
     });
+    
+    // Create and broadcast quarantine restore completion event
+    try {
+      // Collect file paths for all restored quarantine ids
+      const filePaths = [];
+      for (const id of ids) {
+        try {
+          // Get the quarantined detection record that we already fetched earlier
+          // This avoids making another DB query since we already have the data
+          const getQuery = `SELECT original_path FROM quarantined_detections WHERE quarantine_id = $1`;
+          const getResult = await pool.query(getQuery, [id]);
+          if (getResult.rows.length > 0) {
+            filePaths.push(getResult.rows[0].original_path);
+          }
+        } catch (pathError) {
+          logger.warn({
+            message: 'Failed to get file path for quarantine ID',
+            quarantineId: id,
+            error: pathError instanceof Error ? pathError : new Error(String(pathError))
+          }, {
+            component: 'scan-controller',
+            event: 'quarantine_restore_path_error'
+          });
+        }
+      }
+
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: `${ids.length} file(s) successfully restored from quarantine.`,
+        metadata: {
+          quarantine_ids: ids,
+          file_paths: filePaths
+        },
+        completed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_quarantine_restore.completed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast quarantine restore completion event',
+          domain,
+          quarantineIds: ids,
+          eventName
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_restore_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create quarantine restore completion event',
+          domain,
+          quarantineIds: ids,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_restore_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating quarantine restore completion event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        quarantineIds: ids
+      }, {
+        component: 'scan-controller',
+        event: 'quarantine_restore_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
 
     res.json(result);
   } catch (error) {
@@ -933,6 +1502,102 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
       component: 'scan-controller',
       event: 'restore_file_error'
     });
+    
+    // Create and broadcast quarantine restore failure event
+    try {
+      const domain = domainParam;
+      const ids = Array.isArray(req.body.quarantine_ids)
+        ? req.body.quarantine_ids
+        : req.body.quarantine_id
+          ? [req.body.quarantine_id]
+          : [];
+      
+      // Collect file paths for all quarantine ids
+      const filePaths = [];
+      for (const id of ids) {
+        try {
+          // Get the quarantined detection record
+          const getQuery = `SELECT original_path FROM quarantined_detections WHERE quarantine_id = $1`;
+          const getResult = await pool.query(getQuery, [id]);
+          if (getResult.rows.length > 0) {
+            filePaths.push(getResult.rows[0].original_path);
+          }
+        } catch (pathError) {
+          logger.warn({
+            message: 'Failed to get file path for quarantine ID in failure event',
+            quarantineId: id,
+            error: pathError instanceof Error ? pathError : new Error(String(pathError))
+          }, {
+            component: 'scan-controller',
+            event: 'quarantine_restore_failure_path_error'
+          });
+        }
+      }
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: 'Failed to restore file(s) from quarantine.',
+        metadata: {
+          quarantine_ids: ids,
+          file_paths: filePaths,
+          error: err.message
+        },
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_quarantine_restore.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast quarantine restore failure event',
+          domain,
+          quarantineIds: ids,
+          eventName
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_restore_failure_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create quarantine restore failure event',
+          domain,
+          quarantineIds: ids,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_restore_failure_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating quarantine restore failure event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError))
+      }, {
+        component: 'scan-controller',
+        event: 'quarantine_restore_failure_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });
@@ -1531,6 +2196,79 @@ router.post('/:domain/batch-operation', async (req, res) => {
       component: 'scan-controller',
       event: 'batch_operation_completed'
     });
+    
+    // Create and broadcast batch operation completion event
+    try {
+      // Get successful file paths
+      const successPaths = result.results.success.map(item => item.file_path);
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: `${successPaths.length} file(s) successfully ${operation === 'quarantine' ? 'quarantined' : 'deleted'}.`,
+        metadata: {
+          file_paths: successPaths,
+          total_count: result.results.total,
+          success_count: result.results.success.length,
+          failed_count: result.results.failed.length
+        },
+        completed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = operation === 'quarantine' 
+        ? 'filesystem_layer.file_quarantine.completed' 
+        : 'filesystem_layer.file_delete.completed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: `Successfully created and broadcast batch ${operation} completion event`,
+          domain,
+          eventName,
+          successCount: result.results.success.length
+        }, {
+          component: 'scan-controller',
+          event: `batch_${operation}_event_created`
+        });
+      } else {
+        logger.warn({
+          message: `Failed to create batch ${operation} completion event`,
+          domain,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: `batch_${operation}_event_failed`
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: `Error creating batch ${operation} completion event`,
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        operation
+      }, {
+        component: 'scan-controller',
+        event: `batch_${operation}_event_error`
+      });
+      // Don't fail the endpoint if event creation fails
+    }
 
     res.json(result);
   } catch (error) {
@@ -1546,6 +2284,81 @@ router.post('/:domain/batch-operation', async (req, res) => {
       component: 'scan-controller',
       event: 'batch_operation_error'
     });
+    
+    // Create and broadcast batch operation failure event
+    try {
+      const domain = req.params.domain;
+      const operation = req.body.operation || 'unknown';
+      const files = Array.isArray(req.body.files) ? req.body.files : [];
+      
+      // Get file paths if available
+      const filePaths = files.map((file: any) => file.file_path).filter(Boolean);
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: `Batch ${operation} operation failed.`,
+        metadata: {
+          file_paths: filePaths,
+          error: err.message
+        },
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = operation === 'quarantine' 
+        ? 'filesystem_layer.file_quarantine.failed' 
+        : 'filesystem_layer.file_delete.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: `Successfully created and broadcast batch ${operation} failure event`,
+          domain,
+          eventName,
+          fileCount: filePaths.length
+        }, {
+          component: 'scan-controller',
+          event: `batch_${operation}_failure_event_created`
+        });
+      } else {
+        logger.warn({
+          message: `Failed to create batch ${operation} failure event`,
+          domain,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: `batch_${operation}_failure_event_failed`
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: `Error creating batch operation failure event`,
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain: req.params.domain
+      }, {
+        component: 'scan-controller',
+        event: 'batch_operation_failure_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });
@@ -1768,6 +2581,74 @@ router.post('/:domain/delete', async (req, res) => {
         event: 'file_deleted'
       });
 
+      // Create and broadcast file delete completion event
+      try {
+        // Construct event data
+        const eventData = {
+          origin: 'backend',
+          vertical: 'filesystem_layer',
+          status: 'success',
+          message: 'File successfully deleted.',
+          metadata: {
+            file_paths: [file_path],
+            total_count: 1,
+            success_count: 1,
+            failed_count: 0
+          },
+          completed_at: new Date().toISOString()
+        };
+        
+        // Create and broadcast the event
+        const eventName = 'filesystem_layer.file_delete.completed';
+        
+        // First store event in database, then broadcast
+        const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+          },
+          body: JSON.stringify({
+            domain,
+            event: eventName,
+            data: eventData
+          })
+        });
+        
+        if (eventResponse.ok) {
+          logger.info({
+            message: 'Successfully created and broadcast file delete completion event',
+            domain,
+            filePath: file_path,
+            eventName
+          }, {
+            component: 'scan-controller',
+            event: 'file_delete_event_created'
+          });
+        } else {
+          logger.warn({
+            message: 'Failed to create file delete completion event',
+            domain,
+            filePath: file_path,
+            status: eventResponse.status
+          }, {
+            component: 'scan-controller',
+            event: 'file_delete_event_failed'
+          });
+        }
+      } catch (eventError) {
+        logger.error({
+          message: 'Error creating file delete completion event',
+          error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+          domain,
+          filePath: file_path
+        }, {
+          component: 'scan-controller',
+          event: 'file_delete_event_error'
+        });
+        // Don't fail the endpoint if event creation fails
+      }
+
       res.json(result);
     }
   } catch (error) {
@@ -1785,6 +2666,76 @@ router.post('/:domain/delete', async (req, res) => {
       component: 'scan-controller',
       event: 'delete_file_error'
     });
+    
+    // Create and broadcast file delete failure event
+    try {
+      const domain = req.params.domain;
+      const file_path = req.body.file_path;
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: 'File delete operation failed.',
+        metadata: {
+          file_paths: [file_path],
+          error: err.message
+        },
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.file_delete.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast file delete failure event',
+          domain,
+          filePath: file_path,
+          eventName
+        }, {
+          component: 'scan-controller',
+          event: 'file_delete_failure_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create file delete failure event',
+          domain,
+          filePath: file_path,
+          status: eventResponse.status
+        }, {
+          component: 'scan-controller',
+          event: 'file_delete_failure_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating file delete failure event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain: req.params.domain,
+        filePath: req.body.file_path
+      }, {
+        component: 'scan-controller',
+        event: 'file_delete_failure_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });

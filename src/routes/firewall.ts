@@ -3,6 +3,7 @@ import { WPSecAPI } from '../services/wpsec';
 import type { FirewallStatus, FirewallLog } from '../types/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
+import fetch from 'node-fetch';
 
 const router = Router();
 
@@ -104,6 +105,65 @@ router.post('/:domain/toggle', async (req, res) => {
     });
 
     await api.toggleFirewall(active);
+    
+    // Create and broadcast firewall toggle event
+    try {
+      // Determine event name based on toggle state
+      const eventName = active ? 'firewall_layer.toggled.on' : 'firewall_layer.toggled.off';
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'network_layer',
+        status: 'success',
+        message: active ? 'Multi-functional firewall activated' : 'Multi-functional firewall deactivated',
+        toggled_at: new Date().toISOString()
+      };
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: `Successfully created and broadcast firewall toggled ${active ? 'on' : 'off'} event`,
+          domain,
+          eventName
+        }, {
+          component: 'firewall-controller',
+          event: 'firewall_toggle_event_created'
+        });
+      } else {
+        logger.warn({
+          message: `Failed to create firewall toggled ${active ? 'on' : 'off'} event`,
+          domain,
+          status: eventResponse.status
+        }, {
+          component: 'firewall-controller',
+          event: 'firewall_toggle_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating firewall toggle event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain
+      }, {
+        component: 'firewall-controller',
+        event: 'firewall_toggle_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
     
     // Update the network_status.active field in the database
     try {
@@ -274,6 +334,69 @@ router.post('/:domain/whitelist', async (req, res) => {
 
     await api.whitelistFirewallIP(ip, action);
 
+    // Create and broadcast whitelist update event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'network_layer',
+        status: 'success',
+        message: `Firewall rules: ${ip} ${action === 'add' ? 'added to' : 'removed from'} whitelist.`,
+        updated_at: new Date().toISOString(),
+        ip,
+        action
+      };
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: 'firewall_layer.whitelist.updated',
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast whitelist update event',
+          domain,
+          ip,
+          action
+        }, {
+          component: 'firewall-controller',
+          event: 'whitelist_update_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create whitelist update event',
+          domain,
+          ip,
+          action,
+          status: eventResponse.status
+        }, {
+          component: 'firewall-controller',
+          event: 'whitelist_update_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating whitelist update event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        ip,
+        action
+      }, {
+        component: 'firewall-controller',
+        event: 'whitelist_update_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
+
     // Update the network_status field in website_data
     try {
       const { updateNetworkStatus } = await import('../config/db');
@@ -367,6 +490,69 @@ router.post('/:domain/blocklist', async (req, res) => {
     });
 
     await api.blocklistFirewallIP(ip, action);
+
+    // Create and broadcast blocklist update event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'network_layer',
+        status: 'success',
+        message: `Firewall rules: ${ip} ${action === 'block' ? 'added to' : 'removed from'} blacklist.`,
+        updated_at: new Date().toISOString(),
+        ip,
+        action
+      };
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: 'firewall_layer.blacklist.updated',
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast blacklist update event',
+          domain,
+          ip,
+          action
+        }, {
+          component: 'firewall-controller',
+          event: 'blacklist_update_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create blacklist update event',
+          domain,
+          ip,
+          action,
+          status: eventResponse.status
+        }, {
+          component: 'firewall-controller',
+          event: 'blacklist_update_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating blacklist update event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        ip,
+        action
+      }, {
+        component: 'firewall-controller',
+        event: 'blacklist_update_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
 
     // Update the network_status field in website_data
     try {

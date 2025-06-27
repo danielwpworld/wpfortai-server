@@ -3,6 +3,7 @@ import { WPSecAPI } from '../services/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
 import { UpdateStore } from '../services/update-store';
+import fetch from 'node-fetch';
 
 const router = Router();
 
@@ -31,6 +32,69 @@ router.post('/:domain/all', async (req, res) => {
     
     // Update Redis status to in-progress
     await UpdateStore.updateStatus(updateId, 'in-progress');
+    
+    // Create and broadcast plugin update started event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'application_layer',
+        status: 'success',
+        message: 'Performing update of all vulnerable plugins & Themes.',
+        update_id: updateId,
+        started_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'application_layer.plugins.update.started';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast plugins update started event',
+          domain,
+          updateId,
+          eventName
+        }, {
+          component: 'update-controller',
+          event: 'plugins_update_started_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create plugins update started event',
+          domain,
+          updateId,
+          status: eventResponse.status
+        }, {
+          component: 'update-controller',
+          event: 'plugins_update_started_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating plugins update started event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        updateId
+      }, {
+        component: 'update-controller',
+        event: 'plugins_update_started_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
     
     // Pass update_id to the WPSecAPI so it can track the update
     await api.updateAll(updateId);
@@ -154,6 +218,74 @@ router.post('/:domain/items', async (req, res) => {
       component: 'update-controller', 
       event: 'update_items_start' 
     });
+    
+    // Create and broadcast plugin update started event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'application_layer',
+        status: 'success',
+        message: 'Plugin or theme update started.',
+        started_at: new Date().toISOString(),
+        items: {
+          type, // 'plugins' or 'themes'
+          slugs: itemSlugs
+        },
+        count: itemSlugs.length
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'application_layer.plugins.update.started';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast plugins update started event',
+          domain,
+          type,
+          itemCount: itemSlugs.length,
+          eventName
+        }, {
+          component: 'update-controller',
+          event: 'plugins_update_started_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create plugins update started event',
+          domain,
+          type,
+          status: eventResponse.status
+        }, {
+          component: 'update-controller',
+          event: 'plugins_update_started_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating plugins update started event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        type
+      }, {
+        component: 'update-controller',
+        event: 'plugins_update_started_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
     
     // Call the WPSecAPI without tracking in Redis
     const updateResult = await api.updateItems(type, itemSlugs);

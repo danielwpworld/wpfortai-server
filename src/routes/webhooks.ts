@@ -7,6 +7,7 @@ import pool from '../config/db';
 import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
 import { logger } from '../services/logger';
+import { broadcastToWebsite } from '../services/pusher';
 
 const router = Router();
 
@@ -267,6 +268,73 @@ router.post('/scan-failed', scanWebhookMiddleware, async (req, res) => {
       error_message
     });
 
+    // Create and broadcast filesystem scan failed event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'failed',
+        message: 'Deep file scan failed before completion.',
+        metadata: {},
+        scan_id,
+        error: error_message || 'Unknown error occurred during scan',
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.filesystem_scan.failed';
+      
+      // First store event in database, then broadcast
+      // Use the event endpoint for consistency
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain: scanData.domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast scan failed event',
+          scanId: scan_id,
+          domain: scanData.domain,
+          eventName
+        }, {
+          component: 'webhook',
+          event: 'scan_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create scan failed event',
+          scanId: scan_id,
+          domain: scanData.domain,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'webhook',
+          event: 'scan_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating scan failed event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        scanId: scan_id,
+        domain: scanData.domain
+      }, {
+        component: 'webhook',
+        event: 'scan_event_error'
+      });
+      // Don't fail the webhook if event creation fails
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error processing scan failed webhook:', error);
@@ -498,6 +566,89 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
       }
     }
 
+    // Create and broadcast filesystem scan completion event
+    try {
+      // Get whether infections were found (detections above THREAT_SCORE_THRESHOLD)
+      const threatScoreThreshold = parseInt(process.env.THREAT_SCORE_THRESHOLD || '80', 10);
+      let infectionsFound = false;
+      
+      if (results && results.infected_files) {
+        infectionsFound = results.infected_files.some(
+          file => file.threat_score >= threatScoreThreshold
+        );
+      }
+      
+      // Construct event message based on scan results
+      const eventMessage = infectionsFound
+        ? 'Deep file scan completed. Infections detected.'
+        : 'Deep file scan completed. Website is clean.';
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'filesystem_layer',
+        status: 'success',
+        message: eventMessage,
+        metadata: {},
+        scan_id,
+        infected_files_count: results?.infected_files?.length || 0,
+        total_files_count: results?.total_files_scanned || 0,
+        completed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'filesystem_layer.filesystem_scan.completed';
+      
+      // First store event in database, then broadcast
+      // Use the event endpoint for consistency
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain: scanData.domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast scan completion event',
+          scanId: scan_id,
+          domain: scanData.domain,
+          eventName
+        }, {
+          component: 'webhook',
+          event: 'scan_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create scan completion event',
+          scanId: scan_id,
+          domain: scanData.domain,
+          eventName,
+          status: eventResponse.status
+        }, {
+          component: 'webhook',
+          event: 'scan_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating scan completion event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        scanId: scan_id,
+        domain: scanData.domain
+      }, {
+        component: 'webhook',
+        event: 'scan_event_error'
+      });
+      // Don't fail the webhook if event creation fails
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Error processing scan completion webhook:', error);
@@ -626,6 +777,69 @@ router.post('/core-reinstall-complete', async (req, res) => {
         event: 'core_reinstall_completed'
       });
       
+      // Create and broadcast core reinstall completed event
+      try {
+        // Construct event data
+        const eventData = {
+          origin: 'backend',
+          vertical: 'wpcore_layer',
+          status: 'success',
+          message: 'WordPress system fix completed successfully.',
+          operation_id,
+          completed_at: new Date().toISOString()
+        };
+        
+        // Create and broadcast the event
+        const eventName = 'wpcore_layer.core_reinstall.completed';
+        
+        // First store event in database, then broadcast
+        const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+          },
+          body: JSON.stringify({
+            domain,
+            event: eventName,
+            data: eventData
+          })
+        });
+        
+        if (eventResponse.ok) {
+          logger.info({
+            message: 'Successfully created and broadcast core reinstall completed event',
+            domain,
+            operation_id,
+            eventName
+          }, {
+            component: 'core-reinstall-webhook',
+            event: 'core_reinstall_completed_event_created'
+          });
+        } else {
+          logger.warn({
+            message: 'Failed to create core reinstall completed event',
+            domain,
+            operation_id,
+            status: eventResponse.status
+          }, {
+            component: 'core-reinstall-webhook',
+            event: 'core_reinstall_completed_event_failed'
+          });
+        }
+      } catch (eventError) {
+        logger.error({
+          message: 'Error creating core reinstall completed event',
+          error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+          domain,
+          operation_id
+        }, {
+          component: 'core-reinstall-webhook',
+          event: 'core_reinstall_completed_event_error'
+        });
+        // Don't fail the webhook if event creation fails
+      }
+      
       res.json({ success: true });
     } catch (coreCheckError) {
       const err = coreCheckError instanceof Error ? coreCheckError : new Error(String(coreCheckError));
@@ -692,6 +906,94 @@ router.post('/core-reinstall-failed', async (req, res) => {
       return res.status(400).json({ error: 'operation_id is required' });
     }
     await CoreReinstallStore.updateCoreReinstallStatus(operation_id, { status, message: error_message });
+    
+    // Get domain from Redis since it's needed for the event
+    let domain = req.body.domain;
+    if (!domain) {
+      // Try to get the core reinstall data from Redis to extract the domain
+      const reinstallData = await CoreReinstallStore.getCoreReinstall(operation_id);
+      if (reinstallData && reinstallData.domain) {
+        domain = reinstallData.domain;
+        logger.info({
+          message: 'Retrieved domain from Redis for core-reinstall-failed event',
+          operation_id,
+          domain
+        });
+      } else {
+        logger.error({
+          message: 'Domain not provided and not found in Redis for event creation',
+          operation_id
+        });
+        // We'll continue without creating the event
+      }
+    }
+    
+    // Create and broadcast core reinstall failed event if we have the domain
+    if (domain) {
+      try {
+        // Construct event data
+        const eventData = {
+          origin: 'backend',
+          vertical: 'wpcore_layer',
+          status: 'failed',
+          message: 'WordPress system fix failed.',
+          operation_id,
+          error: error_message || 'Unknown error',
+          failed_at: new Date().toISOString()
+        };
+        
+        // Create and broadcast the event
+        const eventName = 'wpcore_layer.core_reinstall.failed';
+        
+        // First store event in database, then broadcast
+        const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+          },
+          body: JSON.stringify({
+            domain,
+            event: eventName,
+            data: eventData
+          })
+        });
+        
+        if (eventResponse.ok) {
+          logger.info({
+            message: 'Successfully created and broadcast core reinstall failed event',
+            domain,
+            operation_id,
+            eventName
+          }, {
+            component: 'core-reinstall-webhook',
+            event: 'core_reinstall_failed_event_created'
+          });
+        } else {
+          logger.warn({
+            message: 'Failed to create core reinstall failed event',
+            domain,
+            operation_id,
+            status: eventResponse.status
+          }, {
+            component: 'core-reinstall-webhook',
+            event: 'core_reinstall_failed_event_failed'
+          });
+        }
+      } catch (eventError) {
+        logger.error({
+          message: 'Error creating core reinstall failed event',
+          error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+          domain,
+          operation_id
+        }, {
+          component: 'core-reinstall-webhook',
+          event: 'core_reinstall_failed_event_error'
+        });
+        // Don't fail the webhook if event creation fails
+      }
+    }
+    
     // Update DB as well
     try {
       const updateCoreReinstallRecord = (await import('../config/db')).updateCoreReinstallRecord;

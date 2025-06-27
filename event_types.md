@@ -48,6 +48,8 @@ wpcore_layer.core_reinstall.completed
 wpcore_layer.core_reinstall.failed
 wpcore_layer.core_check.started
 wpcore_layer.core_check.completed
+wpcore_layer.permissions_fix.completed
+wpcore_layer.permissions_fix.failed
 
 ### FILESYSTEM LAYER EVENTS
 ## FILESYSTEM LAYER: DATA STRUCTURE

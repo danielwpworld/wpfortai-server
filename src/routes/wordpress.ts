@@ -60,6 +60,71 @@ router.post('/:domain/core-reinstall', async (req, res) => {
       check_status_endpoint
     });
 
+    // Create and broadcast core reinstall started event
+    try {
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'wpcore_layer',
+        status: 'success',
+        message: 'WordPress core system fix initiated.',
+        operation_id,
+        version,
+        started_at: new Date().toISOString(),
+        check_status_endpoint
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'wpcore_layer.core_reinstall.started';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast core reinstall started event',
+          domain,
+          operation_id,
+          eventName
+        }, {
+          component: 'wordpress-controller',
+          event: 'core_reinstall_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create core reinstall started event',
+          domain,
+          operation_id,
+          status: eventResponse.status
+        }, {
+          component: 'wordpress-controller',
+          event: 'core_reinstall_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating core reinstall started event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain,
+        operation_id
+      }, {
+        component: 'wordpress-controller',
+        event: 'core_reinstall_event_error'
+      });
+      // Don't fail the endpoint if event creation fails
+    }
+    
     // Insert record into website_core_reinstalls immediately after success
     try {
       const { createCoreReinstallRecord } = await import('../config/db');
@@ -106,6 +171,69 @@ router.post('/:domain/core-reinstall', async (req, res) => {
       component: 'wordpress-controller',
       event: 'core_reinstall_error'
     });
+    
+    // Create and broadcast core reinstall failed event
+    try {
+      const domain = req.params.domain;
+      
+      // Construct event data
+      const eventData = {
+        origin: 'backend',
+        vertical: 'wpcore_layer',
+        status: 'failed',
+        message: 'WordPress core system fix failed.',
+        error: err.message,
+        failed_at: new Date().toISOString()
+      };
+      
+      // Create and broadcast the event
+      const eventName = 'wpcore_layer.core_reinstall.failed';
+      
+      // First store event in database, then broadcast
+      const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+        },
+        body: JSON.stringify({
+          domain,
+          event: eventName,
+          data: eventData
+        })
+      });
+      
+      if (eventResponse.ok) {
+        logger.info({
+          message: 'Successfully created and broadcast core reinstall failed event',
+          domain,
+          eventName
+        }, {
+          component: 'wordpress-controller',
+          event: 'core_reinstall_failure_event_created'
+        });
+      } else {
+        logger.warn({
+          message: 'Failed to create core reinstall failed event',
+          domain,
+          status: eventResponse.status
+        }, {
+          component: 'wordpress-controller',
+          event: 'core_reinstall_failure_event_failed'
+        });
+      }
+    } catch (eventError) {
+      logger.error({
+        message: 'Error creating core reinstall failed event',
+        error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+        domain: req.params.domain
+      }, {
+        component: 'wordpress-controller',
+        event: 'core_reinstall_failure_event_error'
+      });
+      // Don't let event creation failure affect the response
+    }
+    
     res.status(500).json({ error: err.message });
   }
 });

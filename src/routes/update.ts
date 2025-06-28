@@ -226,7 +226,7 @@ router.post('/:domain/items', async (req, res) => {
         origin: 'backend',
         vertical: 'application_layer',
         status: 'success',
-        message: 'Plugin or theme update started.',
+        message: type === 'plugins' ? 'Plugin update started.' : 'Theme update started.',
         started_at: new Date().toISOString(),
         items: {
           type, // 'plugins' or 'themes'

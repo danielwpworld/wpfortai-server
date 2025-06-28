@@ -539,7 +539,7 @@ router.post('/:domain/quarantine', async (req, res) => {
         origin: 'backend',
         vertical: 'filesystem_layer',
         status: 'success',
-        message: 'File successfully quarantined.',
+        message: 'Malicious file successfully quarantined.',
         metadata: {
           file_path,
           quarantine_id: result.quarantine_id,
@@ -1331,6 +1331,28 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
       event: 'restore_from_quarantine'
     });
 
+    // Collect file paths BEFORE restoring/deleting quarantine records
+    // We need these for the event creation after restoration
+    const filePaths: string[] = [];
+    for (const id of ids) {
+      try {
+        const pathQuery = `SELECT original_path FROM quarantined_detections WHERE quarantine_id = $1`;
+        const pathResult = await pool.query(pathQuery, [id]);
+        if (pathResult.rows.length > 0 && pathResult.rows[0].original_path) {
+          filePaths.push(pathResult.rows[0].original_path);
+        }
+      } catch (pathError) {
+        logger.warn({
+          message: 'Failed to get file path for quarantine ID before restore',
+          quarantineId: id,
+          error: pathError instanceof Error ? pathError : new Error(String(pathError))
+        }, {
+          component: 'scan-controller',
+          event: 'quarantine_restore_path_error'
+        });
+      }
+    }
+
     // Enhanced restore logic: For each quarantine_id, mark all related scan_detections as 'active' and remove all corresponding quarantined_detections
     // Track if any DB error occurs
     let dbErrorOccurred = false;
@@ -1369,7 +1391,8 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
         logger.error({
           message: 'Failed to restore scan detection or remove quarantined detection',
           error: dbErrorDetails,
-          quarantineId: id
+          quarantineId: id,
+          domain
         }, {
           component: 'scan-controller',
           event: 'restore_from_quarantine_error'
@@ -1400,28 +1423,7 @@ router.post('/:domain/quarantine/restore', async (req, res) => {
     
     // Create and broadcast quarantine restore completion event
     try {
-      // Collect file paths for all restored quarantine ids
-      const filePaths = [];
-      for (const id of ids) {
-        try {
-          // Get the quarantined detection record that we already fetched earlier
-          // This avoids making another DB query since we already have the data
-          const getQuery = `SELECT original_path FROM quarantined_detections WHERE quarantine_id = $1`;
-          const getResult = await pool.query(getQuery, [id]);
-          if (getResult.rows.length > 0) {
-            filePaths.push(getResult.rows[0].original_path);
-          }
-        } catch (pathError) {
-          logger.warn({
-            message: 'Failed to get file path for quarantine ID',
-            quarantineId: id,
-            error: pathError instanceof Error ? pathError : new Error(String(pathError))
-          }, {
-            component: 'scan-controller',
-            event: 'quarantine_restore_path_error'
-          });
-        }
-      }
+      // Note: We've already collected filePaths before the restore operation
 
       // Construct event data
       const eventData = {
@@ -2588,7 +2590,7 @@ router.post('/:domain/delete', async (req, res) => {
           origin: 'backend',
           vertical: 'filesystem_layer',
           status: 'success',
-          message: 'File successfully deleted.',
+          message: 'Malicious file successfully deleted.',
           metadata: {
             file_paths: [file_path],
             total_count: 1,

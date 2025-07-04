@@ -10,6 +10,7 @@ import webhooksRouter from './webhooks';
 import webhookSecretsRouter from './webhook-secrets';
 import operatorRouter from './operator';
 import eventsRouter from './events';
+import emailsRouter from './emails';
 import { verifyToken } from '../middleware/verify-token';
 
 const router = Router();
@@ -31,5 +32,6 @@ router.use('/operator', operatorRouter);
 router.use('/webhooks', webhooksRouter);
 router.use('/webhook-secrets', webhookSecretsRouter);
 router.use('/events', eventsRouter);
+router.use('/emails', emailsRouter);
 
 export default router;

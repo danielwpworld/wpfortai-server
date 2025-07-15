@@ -22,6 +22,7 @@ wpcore_layer
 filesystem_layer
 application_layer
 firewall_layer
+wordpress
 backup
 operator
 
@@ -154,7 +155,7 @@ network_layer.firewall.toggled.off
     }
 }
 
-## BACKUP LAYER: EVENTS
+## BACKUP: EVENTS
 backup.backup.started
 backup.backup.completed
 backup.backup.failed
@@ -162,8 +163,8 @@ backup.restore.started
 backup.restore.completed
 backup.restore.failed
 
-### OPERATOR LAYER EVENTS
-## OPERATOR LAYER: DATA STRUCTURE
+### OPERATOR EVENTS
+## OPERATOR: DATA STRUCTURE
 {
     "event": "[one of the operator events]",
     "data": {
@@ -179,13 +180,26 @@ backup.restore.failed
     }
 }
 
-## OPERATOR LAYER: EVENTS
+## OPERATOR: EVENTS
 operator.assessment.started
 operator.assessment.completed
 operator.assessment.failed
 operator.action.started
 operator.action.completed
 operator.action.failed
+
+
+## WordPress: EVENTS
+wordpress.post.created
+wordpress.post.updated
+wordpress.post.deleted
+wordpress.user.created
+wordpress.user.updated
+wordpress.user.deleted
+wordpress.comment.created
+wordpress.resource.usage.spike
+wordpress.plugin.installed
+wordpress.plugin.deleted
 
 
 ## Testing the Endpoint

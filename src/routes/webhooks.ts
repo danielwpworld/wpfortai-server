@@ -1157,4 +1157,103 @@ router.post('/updates-completed', async (req, res) => {
   }
 });
 
+/**
+ * Webhook: update-backup-manifest
+ * Body: { domain, manifest }
+ * 
+ * Updates the backup manifest for a website identified by domain.
+ * If an entry exists, it updates the manifest column.
+ * If no entry exists, it creates a new entry.
+ */
+router.post('/update-backup-manifest', async (req, res) => {
+  try {
+    const { domain, manifest } = req.body;
+    
+    if (!domain) {
+      return res.status(400).json({ error: 'domain is required' });
+    }
+    
+    if (!manifest) {
+      return res.status(400).json({ error: 'manifest is required' });
+    }
+    
+    logger.info({
+      message: 'Update backup manifest webhook received',
+      domain
+    }, {
+      component: 'update-backup-manifest-webhook',
+      event: 'update_backup_manifest_received'
+    });
+    
+    // Get website by domain to find the website_id
+    const website = await getWebsiteByDomain(domain);
+    
+    if (!website) {
+      logger.warn({
+        message: 'Website not found',
+        domain
+      }, {
+        component: 'update-backup-manifest-webhook',
+        event: 'website_not_found'
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Check if a backup manifest already exists for this website
+    const existingManifestResult = await pool.query(
+      'SELECT id FROM backup_manifests WHERE website_id = $1',
+      [website.id]
+    );
+    
+    if (existingManifestResult.rows.length > 0) {
+      // Update existing manifest
+      await pool.query(
+        `UPDATE backup_manifests 
+         SET manifest = $1, 
+             domain = $2,
+             created_at = NOW() 
+         WHERE website_id = $3`,
+        [manifest, domain, website.id]
+      );
+      
+      logger.info({
+        message: 'Updated existing backup manifest',
+        domain,
+        websiteId: website.id
+      }, {
+        component: 'update-backup-manifest-webhook',
+        event: 'manifest_updated'
+      });
+    } else {
+      // Create new backup manifest entry
+      await pool.query(
+        `INSERT INTO backup_manifests (website_id, manifest, domain, created_at)
+         VALUES ($1, $2, $3, NOW())`,
+        [website.id, manifest, domain]
+      );
+      
+      logger.info({
+        message: 'Created new backup manifest',
+        domain,
+        websiteId: website.id
+      }, {
+        component: 'update-backup-manifest-webhook',
+        event: 'manifest_created'
+      });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing update backup manifest webhook',
+      error: err
+    }, {
+      component: 'update-backup-manifest-webhook',
+      event: 'update_backup_manifest_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

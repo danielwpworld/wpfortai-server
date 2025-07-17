@@ -3,6 +3,7 @@ import { WPSecAPI } from '../services/wpsec';
 import type { BackupStartResponse, BackupStatus, BackupList, RestoreResponse, RestoreStatus } from '../types/wpsec';
 import { getWebsiteByDomain } from '../config/db';
 import { logger } from '../services/logger';
+import pool from '../config/db';
 
 const router = Router();
 
@@ -215,6 +216,61 @@ router.get('/:domain/restore/:restoreId/status', async (req, res) => {
     res.json(status);
   } catch (error) {
     console.error('Error getting restore status:', error);
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get backup manifest
+router.get('/:domain/manifest', async (req, res) => {
+  try {
+    const { domain } = req.params;
+
+    logger.debug({
+      message: 'Getting backup manifest',
+      domain
+    }, {
+      component: 'backup-controller',
+      event: 'get_backup_manifest'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    // Query the backup_manifests table to get the manifest
+    const result = await pool.query(
+      'SELECT manifest FROM backup_manifests WHERE website_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [website.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Backup manifest not found' });
+    }
+
+    // Return the manifest JSON as-is
+    logger.info({
+      message: 'Backup manifest retrieved',
+      domain,
+      websiteId: website.id
+    }, {
+      component: 'backup-controller',
+      event: 'backup_manifest_retrieved'
+    });
+
+    res.json(result.rows[0].manifest);
+  } catch (error: any) {
+    const errorDomain = req.params.domain;
+    logger.error({
+      message: 'Error getting backup manifest',
+      error,
+      domain: errorDomain
+    }, {
+      component: 'backup-controller',
+      event: 'backup_manifest_error'
+    });
     const err = error instanceof Error ? error : new Error('Unknown error');
     res.status(500).json({ error: err.message });
   }

@@ -1016,7 +1016,6 @@ router.post('/core-reinstall-failed', async (req, res) => {
 
 // --- Update Webhooks ---
 import { UpdateStore, UpdateItemStatus } from '../services/update-store';
-import { getWebsiteByDomain } from '../config/db';
 
 /**
  * Webhook: updates-progress

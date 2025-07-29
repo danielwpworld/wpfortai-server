@@ -1016,6 +1016,7 @@ router.post('/core-reinstall-failed', async (req, res) => {
 
 // --- Update Webhooks ---
 import { UpdateStore, UpdateItemStatus } from '../services/update-store';
+import { getWebsiteByDomain } from '../config/db';
 
 /**
  * Webhook: updates-progress
@@ -1038,7 +1039,7 @@ router.post('/updates-progress', async (req, res) => {
     });
     
     // Get update data from Redis
-    const updateData = await UpdateStore.getUpdate(domain);
+    const updateData = await UpdateStore.getActiveUpdate(domain);
     if (!updateData) {
       logger.warn({
         message: 'Update not found in Redis',
@@ -1057,7 +1058,7 @@ router.post('/updates-progress', async (req, res) => {
       error: item.error
     }));
     
-    await UpdateStore.updateStatus(domain, 'in-progress', itemUpdates);
+    await UpdateStore.updateStatus(updateData.update_id, 'in-progress', itemUpdates);
     
     res.json({ success: true });
   } catch (error) {
@@ -1093,7 +1094,7 @@ router.post('/updates-completed', async (req, res) => {
     });
     
     // Get update data from Redis
-    const updateData = await UpdateStore.getUpdate(domain);
+    const updateData = await UpdateStore.getActiveUpdate(domain);
     if (!updateData) {
       logger.warn({
         message: 'Update not found in Redis',
@@ -1106,7 +1107,7 @@ router.post('/updates-completed', async (req, res) => {
     }
     
     // Mark update as completed in Redis
-    await UpdateStore.updateStatus(domain, 'completed');
+    await UpdateStore.updateStatus(updateData.update_id, 'completed');
     
     // Refresh vulnerabilities data in website_data
     try {
@@ -1251,6 +1252,454 @@ router.post('/update-backup-manifest', async (req, res) => {
     }, {
       component: 'update-backup-manifest-webhook',
       event: 'update_backup_manifest_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Individual Item Update Webhooks ---
+// These webhooks support both update_id-based and domain-based identification
+
+/**
+ * Webhook: update-item-progress
+ * Body: { update_id, slug, status, error? } OR { domain, slug, status, error? }
+ */
+router.post('/update-item-progress', async (req, res) => {
+  try {
+    const { update_id, domain, slug, status, error } = req.body;
+    
+    if ((!update_id && !domain) || !slug || !status) {
+      return res.status(400).json({ error: 'Either update_id or domain is required, along with slug and status' });
+    }
+    
+    logger.info({
+      message: 'Update item progress webhook received',
+      update_id,
+      domain,
+      slug,
+      status,
+      error
+    }, {
+      component: 'update-item-progress-webhook',
+      event: 'update_item_progress_received'
+    });
+    
+    // Get update data from Redis - try update_id first, then domain
+    let updateData;
+    if (update_id) {
+      updateData = await UpdateStore.getUpdate(update_id);
+    } else if (domain) {
+      updateData = await UpdateStore.getActiveUpdate(domain);
+    }
+    if (!updateData) {
+      logger.warn({
+        message: 'Update not found in Redis',
+        update_id,
+        domain
+      }, {
+        component: 'update-item-progress-webhook',
+        event: 'update_not_found'
+      });
+      return res.status(404).json({ error: 'Update not found' });
+    }
+    
+    // Update item status in Redis
+    const itemUpdate: UpdateItemStatus = {
+      slug,
+      status: status as UpdateItemStatus['status'],
+      error
+    };
+    
+    await UpdateStore.updateStatus(updateData.update_id, 'in-progress', [itemUpdate]);
+    
+    logger.info({
+      message: 'Update item progress updated',
+      update_id,
+      slug,
+      status,
+      domain: updateData.domain
+    }, {
+      component: 'update-item-progress-webhook',
+      event: 'update_item_progress_updated'
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing update item progress webhook',
+      error: err
+    }, {
+      component: 'update-item-progress-webhook',
+      event: 'update_item_progress_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: update-item-complete
+ * Body: { update_id, slug } OR { domain, slug }
+ */
+router.post('/update-item-complete', async (req, res) => {
+  try {
+    const { update_id, domain, slug } = req.body;
+    
+    if ((!update_id && !domain) || !slug) {
+      return res.status(400).json({ error: 'Either update_id or domain is required, along with slug' });
+    }
+    
+    logger.info({
+      message: 'Update item complete webhook received',
+      update_id,
+      domain,
+      slug
+    }, {
+      component: 'update-item-complete-webhook',
+      event: 'update_item_complete_received'
+    });
+    
+    // Get update data from Redis - try update_id first, then domain
+    let updateData;
+    if (update_id) {
+      updateData = await UpdateStore.getUpdate(update_id);
+    } else if (domain) {
+      updateData = await UpdateStore.getActiveUpdate(domain);
+    }
+    if (!updateData) {
+      logger.warn({
+        message: 'Update not found in Redis',
+        update_id,
+        domain
+      }, {
+        component: 'update-item-complete-webhook',
+        event: 'update_not_found'
+      });
+      return res.status(404).json({ error: 'Update not found' });
+    }
+    
+    // Mark item as completed
+    const itemUpdate: UpdateItemStatus = {
+      slug,
+      status: 'completed'
+    };
+    
+    await UpdateStore.updateStatus(updateData.update_id, 'in-progress', [itemUpdate]);
+    
+    // Check if this was the last item to complete
+    const updatedData = await UpdateStore.getUpdate(updateData.update_id);
+    const allCompleted = updatedData && updatedData.items.every(item => 
+      item.status === 'completed' || item.status === 'failed'
+    );
+    
+    if (allCompleted) {
+      logger.info({
+        message: 'All items completed, updating application layer',
+        update_id,
+        domain: updateData.domain
+      }, {
+        component: 'update-item-complete-webhook',
+        event: 'all_items_completed'
+      });
+      
+      // Refresh vulnerabilities data in website_data when all items are done
+      try {
+        const api = new WPSecAPI(updateData.domain);
+        const applicationLayer = await api.getVulnerabilities();
+        
+        if (applicationLayer) {
+          const pool = (await import('../config/db')).default;
+          await pool.query(
+            `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+            [applicationLayer, updateData.website_id]
+          );
+          
+          logger.info({
+            message: 'Application layer updated after item update completion',
+            domain: updateData.domain,
+            websiteId: updateData.website_id,
+            update_id
+          }, {
+            component: 'update-item-complete-webhook',
+            event: 'application_layer_updated'
+          });
+        }
+      } catch (appErr) {
+        const appError = appErr instanceof Error ? appErr : new Error(String(appErr));
+        logger.error({
+          message: 'Failed to update application_layer after item update completion',
+          error: appError,
+          domain: updateData.domain,
+          update_id
+        }, {
+          component: 'update-item-complete-webhook',
+          event: 'application_layer_update_failed'
+        });
+        // Do not fail the webhook if this step fails
+      }
+
+      // Create and broadcast completion event
+      try {
+        const completedItems = updatedData.items.filter(item => item.status === 'completed');
+        const failedItems = updatedData.items.filter(item => item.status === 'failed');
+        
+        const eventData = {
+          origin: 'backend',
+          vertical: 'application_layer',
+          status: failedItems.length === 0 ? 'success' : 'partial_success',
+          message: failedItems.length === 0 
+            ? `All ${updateData.type || 'items'} updated successfully.`
+            : `${completedItems.length} ${updateData.type || 'items'} updated, ${failedItems.length} failed.`,
+          update_id,
+          completed_at: new Date().toISOString(),
+          items: {
+            type: updateData.type,
+            completed: completedItems.length,
+            failed: failedItems.length,
+            total: updatedData.items.length
+          }
+        };
+        
+        const eventName = 'application_layer.plugins.update.completed';
+        
+        const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+          },
+          body: JSON.stringify({
+            domain: updateData.domain,
+            event: eventName,
+            data: eventData
+          })
+        });
+        
+        if (eventResponse.ok) {
+          logger.info({
+            message: 'Successfully created and broadcast item update completed event',
+            update_id,
+            domain: updateData.domain,
+            eventName
+          }, {
+            component: 'update-item-complete-webhook',
+            event: 'update_completed_event_created'
+          });
+        }
+      } catch (eventError) {
+        logger.error({
+          message: 'Error creating item update completed event',
+          error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+          update_id,
+          domain: updateData.domain
+        }, {
+          component: 'update-item-complete-webhook',
+          event: 'update_completed_event_error'
+        });
+      }
+    }
+    
+    logger.info({
+      message: 'Update item marked as completed',
+      update_id,
+      slug,
+      domain: updateData.domain
+    }, {
+      component: 'update-item-complete-webhook',
+      event: 'update_item_completed'
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing update item complete webhook',
+      error: err
+    }, {
+      component: 'update-item-complete-webhook',
+      event: 'update_item_complete_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: update-item-failed  
+ * Body: { update_id, slug, error_message } OR { domain, slug, error_message }
+ */
+router.post('/update-item-failed', async (req, res) => {
+  try {
+    const { update_id, domain, slug, error_message } = req.body;
+    
+    if ((!update_id && !domain) || !slug) {
+      return res.status(400).json({ error: 'Either update_id or domain is required, along with slug' });
+    }
+    
+    logger.info({
+      message: 'Update item failed webhook received',
+      update_id,
+      domain,
+      slug,
+      error_message
+    }, {
+      component: 'update-item-failed-webhook',
+      event: 'update_item_failed_received'
+    });
+    
+    // Get update data from Redis - try update_id first, then domain
+    let updateData;
+    if (update_id) {
+      updateData = await UpdateStore.getUpdate(update_id);
+    } else if (domain) {
+      updateData = await UpdateStore.getActiveUpdate(domain);
+    }
+    if (!updateData) {
+      logger.warn({
+        message: 'Update not found in Redis',
+        update_id,
+        domain
+      }, {
+        component: 'update-item-failed-webhook',
+        event: 'update_not_found'
+      });
+      return res.status(404).json({ error: 'Update not found' });
+    }
+    
+    // Mark item as failed
+    const itemUpdate: UpdateItemStatus = {
+      slug,
+      status: 'failed',
+      error: error_message
+    };
+    
+    await UpdateStore.updateStatus(updateData.update_id, 'in-progress', [itemUpdate]);
+    
+    // Check if all items are done (completed or failed)
+    const updatedData = await UpdateStore.getUpdate(updateData.update_id);
+    const allDone = updatedData && updatedData.items.every(item => 
+      item.status === 'completed' || item.status === 'failed'
+    );
+    
+    if (allDone) {
+      logger.info({
+        message: 'All items processed (some failed), updating application layer',
+        update_id,
+        domain: updateData.domain
+      }, {
+        component: 'update-item-failed-webhook',
+        event: 'all_items_processed'
+      });
+      
+      // Still try to refresh application layer even if some items failed
+      try {
+        const api = new WPSecAPI(updateData.domain);
+        const applicationLayer = await api.getVulnerabilities();
+        
+        if (applicationLayer) {
+          const pool = (await import('../config/db')).default;
+          await pool.query(
+            `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+            [applicationLayer, updateData.website_id]
+          );
+        }
+      } catch (appErr) {
+        logger.error({
+          message: 'Failed to update application_layer after mixed update results',
+          error: appErr instanceof Error ? appErr : new Error(String(appErr)),
+          domain: updateData.domain,
+          update_id
+        }, {
+          component: 'update-item-failed-webhook',
+          event: 'application_layer_update_failed'
+        });
+      }
+
+      // Create and broadcast completion event (with failures)
+      try {
+        const completedItems = updatedData.items.filter(item => item.status === 'completed');
+        const failedItems = updatedData.items.filter(item => item.status === 'failed');
+        
+        const eventData = {
+          origin: 'backend',
+          vertical: 'application_layer',
+          status: completedItems.length === 0 ? 'failed' : 'partial_success',
+          message: completedItems.length === 0 
+            ? `All ${updateData.type || 'items'} failed to update.`
+            : `${completedItems.length} ${updateData.type || 'items'} updated, ${failedItems.length} failed.`,
+          update_id,
+          completed_at: new Date().toISOString(),
+          items: {
+            type: updateData.type,
+            completed: completedItems.length,
+            failed: failedItems.length,
+            total: updatedData.items.length
+          },
+          errors: failedItems.map(item => ({ slug: item.slug, error: item.error }))
+        };
+        
+        const eventName = failedItems.length === updatedData.items.length 
+          ? 'application_layer.plugins.update.failed'
+          : 'application_layer.plugins.update.completed';
+        
+        const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+          },
+          body: JSON.stringify({
+            domain: updateData.domain,
+            event: eventName,
+            data: eventData
+          })
+        });
+        
+        if (eventResponse.ok) {
+          logger.info({
+            message: 'Successfully created and broadcast item update completion event',
+            update_id,
+            domain: updateData.domain,
+            eventName,
+            completedCount: completedItems.length,
+            failedCount: failedItems.length
+          }, {
+            component: 'update-item-failed-webhook',
+            event: 'update_completion_event_created'
+          });
+        }
+      } catch (eventError) {
+        logger.error({
+          message: 'Error creating item update completion event',
+          error: eventError instanceof Error ? eventError : new Error(String(eventError)),
+          update_id,
+          domain: updateData.domain
+        }, {
+          component: 'update-item-failed-webhook',
+          event: 'update_completion_event_error'
+        });
+      }
+    }
+    
+    logger.info({
+      message: 'Update item marked as failed',
+      update_id,
+      slug,
+      error_message,
+      domain: updateData.domain
+    }, {
+      component: 'update-item-failed-webhook',
+      event: 'update_item_failed'
+    });
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing update item failed webhook',
+      error: err
+    }, {
+      component: 'update-item-failed-webhook',
+      event: 'update_item_failed_error'
     });
     res.status(500).json({ error: err.message });
   }

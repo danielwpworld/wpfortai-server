@@ -17,7 +17,7 @@ router.post('/:domain/all', async (req, res) => {
     }
     
     // Create a record in Redis for this update operation
-    const updateId = await UpdateStore.createUpdate(domain, website.id);
+    const updateId = await UpdateStore.createUpdate(domain, website.id, undefined, [], 'bulk');
     
     const api = new WPSecAPI(domain);
     logger.info({ 
@@ -206,18 +206,25 @@ router.post('/:domain/items', async (req, res) => {
     if (!itemSlugs.length) {
       return res.status(400).json({ error: 'No valid item slugs provided' });
     }
+
+    // Create a record in Redis for this update operation
+    const updateId = await UpdateStore.createUpdate(domain, website.id, type, itemSlugs, 'items');
     
     const api = new WPSecAPI(domain);
     logger.info({ 
-      message: 'Calling updateItems', 
+      message: 'Calling updateItems with tracking', 
       domain, 
       type, 
       itemSlugs,
+      updateId,
       websiteId: website.id 
     }, { 
       component: 'update-controller', 
       event: 'update_items_start' 
     });
+
+    // Update Redis status to in-progress
+    await UpdateStore.updateStatus(updateId, 'in-progress');
     
     // Create and broadcast plugin update started event
     try {
@@ -228,6 +235,7 @@ router.post('/:domain/items', async (req, res) => {
         status: 'success',
         message: type === 'plugins' ? 'Plugin update started.' : 'Theme update started.',
         started_at: new Date().toISOString(),
+        update_id: updateId,
         items: {
           type, // 'plugins' or 'themes'
           slugs: itemSlugs
@@ -257,6 +265,7 @@ router.post('/:domain/items', async (req, res) => {
           message: 'Successfully created and broadcast plugins update started event',
           domain,
           type,
+          updateId,
           itemCount: itemSlugs.length,
           eventName
         }, {
@@ -268,6 +277,7 @@ router.post('/:domain/items', async (req, res) => {
           message: 'Failed to create plugins update started event',
           domain,
           type,
+          updateId,
           status: eventResponse.status
         }, {
           component: 'update-controller',
@@ -279,7 +289,8 @@ router.post('/:domain/items', async (req, res) => {
         message: 'Error creating plugins update started event',
         error: eventError instanceof Error ? eventError : new Error(String(eventError)),
         domain,
-        type
+        type,
+        updateId
       }, {
         component: 'update-controller',
         event: 'plugins_update_started_event_error'
@@ -287,65 +298,36 @@ router.post('/:domain/items', async (req, res) => {
       // Don't fail the endpoint if event creation fails
     }
     
-    // Call the WPSecAPI without tracking in Redis
-    const updateResult = await api.updateItems(type, itemSlugs);
-    logger.info({ 
-      message: 'updateItems succeeded', 
-      domain, 
-      type, 
-      itemSlugs, 
-      updateResult,
-      websiteId: website.id 
-    }, { 
-      component: 'update-controller', 
-      event: 'update_items_success' 
-    });
-
-    // Check for errors in updateResult
-    if (updateResult && Array.isArray(updateResult.results)) {
-      const failed = updateResult.results.filter((r: any) => r.success === false);
-      if (failed.length > 0) {
-        logger.error({ message: 'Some items failed to update', domain, type, itemSlugs, failed }, { component: 'update-controller', event: 'update_items_partial_failure' });
-        return res.status(400).json({
-          error: 'Some items failed to update',
-          failed,
-          updateResult
-        });
-      }
-    }
-
-    // Run vulnerabilities check and update application_layer in website_data
+    // Call the WPSecAPI with the updateId for webhook tracking
     try {
-      const applicationLayer = await api.getVulnerabilities();
-      if (applicationLayer) {
-        const pool = (await import('../config/db')).default;
-        await pool.query(
-          `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
-          [applicationLayer, website.id]
-        );
-        logger.info({
-          message: 'application_layer updated after updateItems',
-          domain,
-          websiteId: website.id
-        }, {
-          component: 'update-controller',
-          event: 'application_layer_updated_after_update_items'
-        });
-      }
-    } catch (appErr) {
-      logger.error({
-        message: 'Failed to update application_layer after updateItems',
-        error: appErr instanceof Error ? appErr : new Error(String(appErr) || 'Unknown error'),
-        domain,
-        websiteId: website.id
-      }, {
-        component: 'update-controller',
-        event: 'application_layer_update_failed_after_update_items'
+      const updateResult = await api.updateItems(type, itemSlugs, updateId);
+      logger.info({ 
+        message: 'updateItems API call initiated', 
+        domain, 
+        type, 
+        itemSlugs, 
+        updateId,
+        websiteId: website.id 
+      }, { 
+        component: 'update-controller', 
+        event: 'update_items_initiated' 
       });
-      // Do not fail the main response if this step fails
-    }
 
-    res.json({ status: 'success' });
+      // Return immediately with the operation details
+      // The actual progress will be tracked via webhooks
+      res.json({ 
+        status: 'initiated',
+        update_id: updateId,
+        domain,
+        type,
+        items: itemSlugs,
+        message: 'Update operation started. Use the status endpoint to track progress.'
+      });
+    } catch (apiError) {
+      // If API call fails, mark as failed in Redis
+      await UpdateStore.updateStatus(updateId, 'failed', undefined, 'Failed to initiate update operation');
+      throw apiError;
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     const { domain } = req.params;
@@ -417,14 +399,26 @@ router.get('/:domain/status', async (req, res) => {
       });
     }
     
-    // Return the update status
+    // Return the update status with enhanced details
     return res.json({
       status: updateData.status,
+      update_id: updateData.update_id,
+      operation_type: updateData.operation_type || 'bulk',
+      type: updateData.type,
       started_at: updateData.started_at,
       completed_at: updateData.completed_at,
       items: updateData.items,
       domain: updateData.domain,
-      website_id: updateData.website_id
+      website_id: updateData.website_id,
+      error: updateData.error,
+      // Add summary statistics for item operations
+      summary: updateData.operation_type === 'items' && updateData.items.length > 0 ? {
+        total: updateData.items.length,
+        completed: updateData.items.filter(item => item.status === 'completed').length,
+        failed: updateData.items.filter(item => item.status === 'failed').length,
+        in_progress: updateData.items.filter(item => item.status === 'in-progress').length,
+        initializing: updateData.items.filter(item => item.status === 'initializing').length
+      } : undefined
     });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

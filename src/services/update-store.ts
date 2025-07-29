@@ -12,11 +12,13 @@ export interface StoredUpdateData {
   website_id: string; // UUID of the website
   domain: string;
   update_id: string; // Unique ID for this update operation
-  type?: string; // For specific item updates
+  type?: string; // For specific item updates ('plugins', 'themes', or undefined for bulk)
+  operation_type?: 'bulk' | 'items'; // Track if this is a bulk update or individual items
   items: UpdateItemStatus[];
   started_at: string;
   status: UpdateStatus; // Overall status
   completed_at?: string;
+  error?: string; // Overall error message if failed
 }
 
 export class UpdateStore {
@@ -24,7 +26,7 @@ export class UpdateStore {
   private static readonly ACTIVE_UPDATE_KEY_PREFIX = 'active_update:';
   private static readonly UPDATE_TTL = 60 * 60 * 24; // 24 hours in seconds
 
-  static async createUpdate(domain: string, websiteId: string, type?: string, itemSlugs: string[] = []): Promise<string> {
+  static async createUpdate(domain: string, websiteId: string, type?: string, itemSlugs: string[] = [], operationType: 'bulk' | 'items' = 'bulk'): Promise<string> {
     // Generate a unique update ID
     const updateId = `upd_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
@@ -38,6 +40,7 @@ export class UpdateStore {
       domain,
       update_id: updateId,
       type,
+      operation_type: operationType,
       items,
       started_at: new Date().toISOString(),
       status: 'initializing'
@@ -62,7 +65,7 @@ export class UpdateStore {
     return updateId;
   }
 
-  static async updateStatus(updateId: string, status: UpdateStatus, itemUpdates?: UpdateItemStatus[]): Promise<void> {
+  static async updateStatus(updateId: string, status: UpdateStatus, itemUpdates?: UpdateItemStatus[], error?: string): Promise<void> {
     const key = `${this.UPDATE_KEY_PREFIX}${updateId}`;
     const existingData = await redis.get(key);
     
@@ -74,6 +77,11 @@ export class UpdateStore {
     
     // Update overall status
     storedData.status = status;
+    
+    // Set error if provided
+    if (error) {
+      storedData.error = error;
+    }
     
     // If completed or failed, set completed_at
     if (status === 'completed' || status === 'failed') {
@@ -100,10 +108,30 @@ export class UpdateStore {
       storedData.items = Array.from(itemMap.values());
     }
 
+    // For item operations, check if all items are completed or failed to determine overall status
+    if (storedData.operation_type === 'items' && storedData.items.length > 0 && status === 'in-progress') {
+      const completedItems = storedData.items.filter(item => item.status === 'completed');
+      const failedItems = storedData.items.filter(item => item.status === 'failed');
+      const totalItems = storedData.items.length;
+      
+      if (completedItems.length + failedItems.length === totalItems) {
+        // All items are done - determine overall status
+        if (failedItems.length === 0) {
+          storedData.status = 'completed';
+        } else if (completedItems.length === 0) {
+          storedData.status = 'failed';
+        } else {
+          // Mixed results - mark as completed but with some failures
+          storedData.status = 'completed';
+        }
+        storedData.completed_at = new Date().toISOString();
+      }
+    }
+
     await redis.setex(key, this.UPDATE_TTL, JSON.stringify(storedData));
 
     // If update is completed or failed, remove it from active updates
-    if (status === 'completed' || status === 'failed') {
+    if (storedData.status === 'completed' || storedData.status === 'failed') {
       await redis.del(`${this.ACTIVE_UPDATE_KEY_PREFIX}${storedData.domain}`);
     }
   }

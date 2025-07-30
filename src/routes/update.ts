@@ -344,6 +344,67 @@ router.post('/:domain/items', async (req, res) => {
   }
 });
 
+// GET /api/update/:domain/active
+router.get('/:domain/active', async (req, res) => {
+  try {
+    const { domain } = req.params;
+    
+    // Check if the website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Get active update using the UpdateStore method
+    const activeUpdate = await UpdateStore.getActiveUpdate(domain);
+    
+    if (!activeUpdate) {
+      return res.json({
+        has_active_job: false,
+        message: 'No active update job for this domain'
+      });
+    }
+    
+    // Prepare response with active job information
+    const response: any = {
+      has_active_job: true,
+      update_id: activeUpdate.update_id,
+      operation_type: activeUpdate.operation_type || 'bulk',
+      status: activeUpdate.status,
+      started_at: activeUpdate.started_at
+    };
+    
+    // Add type for item operations
+    if (activeUpdate.operation_type === 'items' && activeUpdate.type) {
+      response.type = activeUpdate.type;
+    }
+    
+    // Add item count and progress summary for item operations
+    if (activeUpdate.operation_type === 'items' && activeUpdate.items.length > 0) {
+      response.item_count = activeUpdate.items.length;
+      response.progress_summary = {
+        completed: activeUpdate.items.filter(item => item.status === 'completed').length,
+        failed: activeUpdate.items.filter(item => item.status === 'failed').length,
+        in_progress: activeUpdate.items.filter(item => item.status === 'in-progress').length,
+        initializing: activeUpdate.items.filter(item => item.status === 'initializing').length
+      };
+    }
+    
+    return res.json(response);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Failed to check active update job',
+      error: err,
+      path: req.path
+    }, {
+      component: 'update-controller',
+      event: 'update_active_check_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/update/:domain/status
 router.get('/:domain/status', async (req, res) => {
   try {

@@ -42,8 +42,43 @@ const response = await fetch('/api/update/example.com/items', {
 ```
 
 #### Poll for Progress
+
+##### Quick Active Job Check
 ```javascript
-// GET request to check progress
+// GET request to quickly check if any update job is active
+const activeResponse = await fetch('/api/update/example.com/active', {
+  headers: {
+    'Authorization': 'Bearer <token>'
+  }
+});
+
+// Response format (when active):
+{
+  "has_active_job": true,
+  "update_id": "upd_1753872114143_vlgkjkl",
+  "operation_type": "items",
+  "status": "in-progress",
+  "started_at": "2025-07-30T10:41:54.143Z",
+  "type": "plugins",
+  "item_count": 1,
+  "progress_summary": {
+    "completed": 0,
+    "failed": 0,
+    "in_progress": 0,
+    "initializing": 1
+  }
+}
+
+// Response format (when inactive):
+{
+  "has_active_job": false,
+  "message": "No active update job for this domain"
+}
+```
+
+##### Detailed Progress Check
+```javascript
+// GET request to check detailed progress
 const statusResponse = await fetch('/api/update/example.com/status', {
   headers: {
     'Authorization': 'Bearer <token>'
@@ -89,8 +124,29 @@ const statusResponse = await fetch('/api/update/example.com/status', {
 - **Endpoint**: `POST /api/update/:domain/items`
 - **Handler**: `src/routes/update.ts`
 
+**Request format:**
+```json
+{
+  "type": "plugins",
+  "items": ["plugin-slug-1", "plugin-slug-2"]
+}
+```
+
+**Response format:**
+```json
+{
+  "status": "initiated",
+  "update_id": "upd_1753872114143_vlgkjkl",
+  "domain": "test-wpworld.uk",
+  "type": "plugins",
+  "items": ["test-plugin"],
+  "message": "Update operation started. Use the status endpoint to track progress."
+}
+```
+
+**Flow:**
 ```typescript
-// Flow:
+// Processing steps:
 1. Validate request (type, items)
 2. Get website from database
 3. Create update record in Redis via UpdateStore.createUpdate()
@@ -138,11 +194,82 @@ Three webhook endpoints handle different stages:
 }
 ```
 
-#### Step 3: Status Endpoint
+#### Step 3: Status Endpoints
+
+##### Active Job Check Endpoint
+- **Endpoint**: `GET /api/update/:domain/active`
+- **Handler**: `src/routes/update.ts`
+- **Purpose**: Quick check for active update jobs (lightweight response)
+
+**Response when job is active:**
+```json
+{
+  "has_active_job": true,
+  "update_id": "upd_1753872114143_vlgkjkl",
+  "operation_type": "items",
+  "status": "in-progress",
+  "started_at": "2025-07-30T10:41:54.143Z",
+  "type": "plugins",
+  "item_count": 1,
+  "progress_summary": {
+    "completed": 0,
+    "failed": 0,
+    "in_progress": 0,
+    "initializing": 1
+  }
+}
+```
+
+**Response when no job is active:**
+```json
+{
+  "has_active_job": false,
+  "message": "No active update job for this domain"
+}
+```
+
+##### Detailed Status Endpoint
 - **Endpoint**: `GET /api/update/:domain/status`
 - **Handler**: `src/routes/update.ts`
+- **Purpose**: Detailed progress information including full item details
 
-Returns current progress including per-item status and summary statistics.
+**Response format:**
+```json
+{
+  "status": "in-progress",
+  "update_id": "upd_1753872114143_vlgkjkl",
+  "operation_type": "items",
+  "type": "plugins",
+  "started_at": "2025-07-30T10:41:54.143Z",
+  "items": [
+    {
+      "slug": "test-plugin",
+      "status": "initializing"
+    }
+  ],
+  "domain": "test-wpworld.uk",
+  "website_id": "0fb225c9-f75f-4e14-b360-f926132c4b09",
+  "summary": {
+    "total": 1,
+    "completed": 0,
+    "failed": 0,
+    "in_progress": 0,
+    "initializing": 1
+  }
+}
+```
+
+**Response when no update is in progress:**
+```json
+{
+  "status": "none",
+  "message": "No update in progress for this domain"
+}
+```
+
+**Endpoint Comparison:**
+- **`/active`** - Fast boolean check for job existence (lightweight)
+- **`/status`** - Comprehensive progress details (full information)
 
 ### 3. WPSec Plugin (WordPress Plugin)
 
@@ -272,9 +399,13 @@ sequenceDiagram
     B->>D: Update application_layer
     B->>B: Broadcast completion event
     
+    F->>B: GET /api/update/domain/active
+    B->>R: Check active update
+    B->>F: Return active job status (lightweight)
+    
     F->>B: GET /api/update/domain/status
     B->>R: Get update data
-    B->>F: Return progress with summary
+    B->>F: Return progress with summary (detailed)
 ```
 
 ## Redis Data Structure
@@ -341,7 +472,11 @@ curl -X POST http://localhost:3001/api/update/example.com/items \
   -H "Authorization: Bearer <token>" \
   -d '{"type":"plugins","items":["plugin-1","plugin-2"]}'
 
-# Check status  
+# Check if any job is active (quick check)
+curl http://localhost:3001/api/update/example.com/active \
+  -H "Authorization: Bearer <token>"
+
+# Check detailed status  
 curl http://localhost:3001/api/update/example.com/status \
   -H "Authorization: Bearer <token>"
 

@@ -8,6 +8,7 @@ import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
 import { logger } from '../services/logger';
 import { broadcastToWebsite } from '../services/pusher';
+import { UpdateStore, UpdateItemStatus } from '../services/update-store';
 
 const router = Router();
 
@@ -1015,7 +1016,6 @@ router.post('/core-reinstall-failed', async (req, res) => {
 });
 
 // --- Update Webhooks ---
-import { UpdateStore, UpdateItemStatus } from '../services/update-store';
 
 /**
  * Webhook: updates-progress

@@ -729,8 +729,15 @@ router.get('/:domain/connectivity', async (req, res) => {
     }
 
     // 3. Check initial plugin installation
+    const initialInstallQuery = `
+      SELECT initial_plugin_installed
+      FROM websites 
+      WHERE id = $1
+    `;
+    const initialInstallResult = await pool.query(initialInstallQuery, [websiteId]);
+    
     const initial_install = {
-      installed: website.initial_plugin_installed || false
+      installed: initialInstallResult.rows[0]?.initial_plugin_installed || false
     };
 
     // 4. Check layers data freshness

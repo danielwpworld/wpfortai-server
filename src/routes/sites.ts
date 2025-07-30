@@ -652,4 +652,229 @@ router.get('/:domain/uptime-history', async (req, res) => {
   }
 });
 
+/**
+ * Get website connectivity status
+ * Checks uptime, ping, initial plugin installation, and layer data freshness
+ */
+router.get('/:domain/connectivity', async (req, res) => {
+  try {
+    const { domain } = req.params;
+
+    logger.debug({
+      message: 'Checking website connectivity',
+      domain
+    }, {
+      component: 'sites-controller',
+      event: 'check_connectivity'
+    });
+
+    // Check if website exists
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      return res.status(404).json({ error: 'Website not found' });
+    }
+
+    const websiteId = website.id;
+    const now = new Date();
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+    // 1. Check uptime (last probe within 10 minutes)
+    const uptimeQuery = `
+      SELECT status, created_at, plugin_status, database_connected, filesystem_accessible
+      FROM website_uptime 
+      WHERE website_id = $1 
+      ORDER BY created_at DESC 
+      LIMIT 1
+    `;
+    const uptimeResult = await pool.query(uptimeQuery, [websiteId]);
+    
+    let uptime = {
+      connected: false,
+      last_check: null as string | null,
+      status: null as string | null
+    };
+
+    if (uptimeResult.rows.length > 0) {
+      const lastUptime = uptimeResult.rows[0];
+      const lastCheck = new Date(lastUptime.created_at);
+      uptime = {
+        connected: lastCheck > tenMinutesAgo && lastUptime.status === 'up',
+        last_check: lastUptime.created_at,
+        status: lastUptime.status
+      };
+    }
+
+    // 2. Ping check
+    let ping = {
+      connected: false,
+      plugin_active: false,
+      plugin_version: null as string | null,
+      error: null as string | null
+    };
+
+    try {
+      const api = new WPSecAPI(domain);
+      const pingResult = await api.ping();
+      ping = {
+        connected: true,
+        plugin_active: pingResult.data.plugin_active || false,
+        plugin_version: pingResult.data.plugin_version || null,
+        error: null
+      };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error('Unknown error');
+      ping.error = err.message;
+    }
+
+    // 3. Check initial plugin installation
+    const initial_install = {
+      installed: website.initial_plugin_installed || false
+    };
+
+    // 4. Check layers data freshness
+    const layers = [];
+
+    // Check website_data for non-filesystem layers (within 1 day)
+    const layersQuery = `
+      SELECT wpcore_layer, application_layer, network_layer, fetched_at
+      FROM website_data 
+      WHERE website_id = $1 
+      ORDER BY fetched_at DESC 
+      LIMIT 1
+    `;
+    const layersResult = await pool.query(layersQuery, [websiteId]);
+
+    if (layersResult.rows.length > 0) {
+      const layerData = layersResult.rows[0];
+      const fetchedAt = new Date(layerData.fetched_at);
+      const isRecent = fetchedAt > oneDayAgo;
+
+      // WP Core Layer
+      if (layerData.wpcore_layer) {
+        layers.push({
+          name: 'wpcore_layer',
+          fresh: isRecent,
+          last_updated: layerData.fetched_at,
+          data_available: true
+        });
+      } else {
+        layers.push({
+          name: 'wpcore_layer',
+          fresh: false,
+          last_updated: null,
+          data_available: false
+        });
+      }
+
+      // Application Layer
+      if (layerData.application_layer) {
+        layers.push({
+          name: 'application_layer',
+          fresh: isRecent,
+          last_updated: layerData.fetched_at,
+          data_available: true
+        });
+      } else {
+        layers.push({
+          name: 'application_layer',
+          fresh: false,
+          last_updated: null,
+          data_available: false
+        });
+      }
+
+      // Network Layer
+      if (layerData.network_layer) {
+        layers.push({
+          name: 'network_layer',
+          fresh: isRecent,
+          last_updated: layerData.fetched_at,
+          data_available: true
+        });
+      } else {
+        layers.push({
+          name: 'network_layer',
+          fresh: false,
+          last_updated: null,
+          data_available: false
+        });
+      }
+    } else {
+      // No data available for any layer
+      ['wpcore_layer', 'application_layer', 'network_layer'].forEach(layerName => {
+        layers.push({
+          name: layerName,
+          fresh: false,
+          last_updated: null,
+          data_available: false
+        });
+      });
+    }
+
+    // Check filesystem layer from website_scans (within 2 days)
+    const filesystemQuery = `
+      SELECT completed_at, status
+      FROM website_scans 
+      WHERE website_id = $1 AND status = 'completed'
+      ORDER BY completed_at DESC 
+      LIMIT 1
+    `;
+    const filesystemResult = await pool.query(filesystemQuery, [websiteId]);
+
+    if (filesystemResult.rows.length > 0) {
+      const lastScan = filesystemResult.rows[0];
+      const completedAt = new Date(lastScan.completed_at);
+      const isRecent = completedAt > twoDaysAgo;
+
+      layers.push({
+        name: 'filesystem_layer',
+        fresh: isRecent,
+        last_updated: lastScan.completed_at,
+        data_available: true
+      });
+    } else {
+      layers.push({
+        name: 'filesystem_layer',
+        fresh: false,
+        last_updated: null,
+        data_available: false
+      });
+    }
+
+    const response = {
+      uptime,
+      ping,
+      initial_install,
+      layers
+    };
+
+    logger.info({
+      message: 'Website connectivity check completed',
+      domain,
+      uptime: uptime.connected,
+      ping: ping.connected,
+      initial_install: initial_install.installed,
+      layers_fresh: layers.filter(l => l.fresh).length
+    }, {
+      component: 'sites-controller',
+      event: 'connectivity_check_completed'
+    });
+
+    res.json(response);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error('Unknown error');
+    logger.error({
+      message: 'Failed to check website connectivity',
+      error: err,
+      path: req.path
+    }, {
+      component: 'sites-controller',
+      event: 'connectivity_check_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

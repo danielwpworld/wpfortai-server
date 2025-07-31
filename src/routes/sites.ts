@@ -740,7 +740,19 @@ router.get('/:domain/connectivity', async (req, res) => {
       installed: initialInstallResult.rows[0]?.initial_plugin_installed || false
     };
 
-    // 4. Check layers data freshness
+    // 4. Get user plan information
+    const userPlanQuery = `
+      SELECT plan
+      FROM users 
+      WHERE uid = $1
+    `;
+    const userPlanResult = await pool.query(userPlanQuery, [website.user_id]);
+    
+    const user_plan = {
+      plan: userPlanResult.rows[0]?.plan || 'free'
+    };
+
+    // 5. Check layers data freshness
     const layers = [];
 
     // Check website_data for non-filesystem layers (within 1 day)
@@ -854,6 +866,7 @@ router.get('/:domain/connectivity', async (req, res) => {
       uptime,
       ping,
       initial_install,
+      user_plan,
       layers
     };
 
@@ -863,6 +876,7 @@ router.get('/:domain/connectivity', async (req, res) => {
       uptime: uptime.connected,
       ping: ping.connected,
       initial_install: initial_install.installed,
+      user_plan: user_plan.plan,
       layers_fresh: layers.filter(l => l.fresh).length
     }, {
       component: 'sites-controller',

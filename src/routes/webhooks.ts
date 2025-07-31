@@ -1447,7 +1447,9 @@ router.post('/update-item-complete', async (req, res) => {
           vertical: 'application_layer',
           status: failedItems.length === 0 ? 'success' : 'partial_success',
           message: failedItems.length === 0 
-            ? `All ${updateData.type || 'items'} updated successfully.`
+            ? (completedItems.length === 1 
+                ? `${updateData.type === 'plugins' ? 'Plugin' : 'Theme'} updated successfully: ${completedItems[0].slug}`
+                : `All ${completedItems.length} ${updateData.type || 'items'} updated successfully.`)
             : `${completedItems.length} ${updateData.type || 'items'} updated, ${failedItems.length} failed.`,
           update_id,
           completed_at: new Date().toISOString(),
@@ -1459,7 +1461,7 @@ router.post('/update-item-complete', async (req, res) => {
           }
         };
         
-        const eventName = 'application_layer.plugins.update.completed';
+        const eventName = `application_layer.${updateData.type || 'plugins'}.update.completed`;
         
         const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
           method: 'POST',
@@ -1623,7 +1625,9 @@ router.post('/update-item-failed', async (req, res) => {
           vertical: 'application_layer',
           status: completedItems.length === 0 ? 'failed' : 'partial_success',
           message: completedItems.length === 0 
-            ? `All ${updateData.type || 'items'} failed to update.`
+            ? (failedItems.length === 1 
+                ? `${updateData.type === 'plugins' ? 'Plugin' : 'Theme'} failed to update: ${failedItems[0].slug}`
+                : `All ${failedItems.length} ${updateData.type || 'items'} failed to update.`)
             : `${completedItems.length} ${updateData.type || 'items'} updated, ${failedItems.length} failed.`,
           update_id,
           completed_at: new Date().toISOString(),
@@ -1637,8 +1641,8 @@ router.post('/update-item-failed', async (req, res) => {
         };
         
         const eventName = failedItems.length === updatedData.items.length 
-          ? 'application_layer.plugins.update.failed'
-          : 'application_layer.plugins.update.completed';
+          ? `application_layer.${updateData.type || 'plugins'}.update.failed`
+          : `application_layer.${updateData.type || 'plugins'}.update.completed`;
         
         const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
           method: 'POST',

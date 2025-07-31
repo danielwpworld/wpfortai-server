@@ -233,7 +233,9 @@ router.post('/:domain/items', async (req, res) => {
         origin: 'backend',
         vertical: 'application_layer',
         status: 'success',
-        message: type === 'plugins' ? 'Plugin update started.' : 'Theme update started.',
+        message: itemSlugs.length === 1 
+          ? `${type === 'plugins' ? 'Plugin' : 'Theme'} update started: ${itemSlugs[0]}`
+          : `${type === 'plugins' ? 'Plugin' : 'Theme'} update started for ${itemSlugs.length} items`,
         started_at: new Date().toISOString(),
         update_id: updateId,
         items: {
@@ -244,7 +246,7 @@ router.post('/:domain/items', async (req, res) => {
       };
       
       // Create and broadcast the event
-      const eventName = 'application_layer.plugins.update.started';
+      const eventName = `application_layer.${type}.update.started`;
       
       // First store event in database, then broadcast
       const eventResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/events/create`, {
@@ -262,7 +264,7 @@ router.post('/:domain/items', async (req, res) => {
       
       if (eventResponse.ok) {
         logger.info({
-          message: 'Successfully created and broadcast plugins update started event',
+          message: `Successfully created and broadcast ${type} update started event`,
           domain,
           type,
           updateId,
@@ -270,30 +272,30 @@ router.post('/:domain/items', async (req, res) => {
           eventName
         }, {
           component: 'update-controller',
-          event: 'plugins_update_started_event_created'
+          event: 'update_started_event_created'
         });
       } else {
         logger.warn({
-          message: 'Failed to create plugins update started event',
+          message: `Failed to create ${type} update started event`,
           domain,
           type,
           updateId,
           status: eventResponse.status
         }, {
           component: 'update-controller',
-          event: 'plugins_update_started_event_failed'
+          event: 'update_started_event_failed'
         });
       }
     } catch (eventError) {
       logger.error({
-        message: 'Error creating plugins update started event',
+        message: `Error creating ${type} update started event`,
         error: eventError instanceof Error ? eventError : new Error(String(eventError)),
         domain,
         type,
         updateId
       }, {
         component: 'update-controller',
-        event: 'plugins_update_started_event_error'
+        event: 'update_started_event_error'
       });
       // Don't fail the endpoint if event creation fails
     }

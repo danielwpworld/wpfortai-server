@@ -1575,7 +1575,6 @@ router.post('/update-item-failed', async (req, res) => {
     
     await UpdateStore.updateStatus(updateData.update_id, 'in-progress', [itemUpdate]);
     
-    // Check if all items are done (completed or failed)
     const updatedData = await UpdateStore.getUpdate(updateData.update_id);
     const allDone = updatedData && updatedData.items.every(item => 
       item.status === 'completed' || item.status === 'failed'

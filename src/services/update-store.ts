@@ -115,14 +115,12 @@ export class UpdateStore {
       const totalItems = storedData.items.length;
       
       if (completedItems.length + failedItems.length === totalItems) {
-        // All items are done - determine overall status
         if (failedItems.length === 0) {
           storedData.status = 'completed';
         } else if (completedItems.length === 0) {
           storedData.status = 'failed';
         } else {
-          // Mixed results - mark as completed but with some failures
-          storedData.status = 'completed';
+          storedData.status = 'completed'; // Mixed results - some completed, some failed
         }
         storedData.completed_at = new Date().toISOString();
       }

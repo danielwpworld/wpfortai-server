@@ -439,9 +439,8 @@ router.get('/:domain/status', async (req, res) => {
                 // First match found
                 updateData = parsedData;
               } else {
-                // Use the most recent update if there are multiple
-                if (!updateData.completed_at || 
-                    (parsedData.started_at > updateData.started_at && !parsedData.completed_at)) {
+                // Always use the most recent update based on started_at timestamp
+                if (parsedData.started_at > updateData.started_at) {
                   updateData = parsedData;
                 }
               }

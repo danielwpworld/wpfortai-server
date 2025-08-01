@@ -35,20 +35,22 @@ router.post('/:domain/start', async (req, res) => {
       return res.status(404).json({ error: 'Website not found' });
     }
 
-    // Check if there's already an active scan
+    // Check if there's already an active scan (using website_id for bulletproof tracking)
     logger.debug({
       message: 'Checking for active scan',
-      domain
+      domain,
+      websiteId: website.id
     }, {
       component: 'scan-controller',
       event: 'check_active_scan'
     });
 
-    const activeScan = await ScanStore.getActiveScan(domain);
+    const activeScan = await ScanStore.getActiveScanByWebsiteId(website.id);
     if (activeScan) {
       logger.info({
         message: 'Active scan already exists',
         domain,
+        websiteId: website.id,
         activeScanId: activeScan.scan_id
       }, {
         component: 'scan-controller',
@@ -105,9 +107,37 @@ router.post('/:domain/start', async (req, res) => {
       // Continue even if database insert fails
     }
     
+    // Store scan in Redis with automatic cleanup (bulletproof method)
+    try {
+      await ScanStore.createScanWithCleanup(website.id, domain, scanData);
+      
+      logger.info({
+        message: 'Scan stored in Redis with cleanup',
+        domain,
+        websiteId: website.id,
+        scanId: scanData.scan_id
+      }, {
+        component: 'scan-controller',
+        event: 'scan_redis_stored'
+      });
+    } catch (redisError) {
+      logger.error({
+        message: 'Failed to store scan in Redis',
+        error: redisError instanceof Error ? redisError : new Error('Unknown Redis error'),
+        domain,
+        websiteId: website.id,
+        scanId: scanData.scan_id
+      }, {
+        component: 'scan-controller',
+        event: 'scan_redis_error'
+      });
+      // Continue even if Redis storage fails
+    }
+    
     logger.info({
       message: 'Scan started successfully',
       domain,
+      websiteId: website.id,
       scanId: scanData.scan_id
     }, {
       component: 'scan-controller',
@@ -414,20 +444,22 @@ router.get('/:domain/active', async (req, res) => {
       return res.status(404).json({ error: 'Website not found' });
     }
 
-    // Get active scan
+    // Get active scan (using website_id for bulletproof tracking)
     logger.debug({
       message: 'Checking for active scan',
-      domain
+      domain,
+      websiteId: website.id
     }, {
       component: 'scan-controller',
       event: 'check_active_scan'
     });
 
-    const activeScan = await ScanStore.getActiveScan(domain);
+    const activeScan = await ScanStore.getActiveScanByWebsiteId(website.id);
     if (!activeScan) {
       logger.info({
         message: 'No active scan found',
-        domain
+        domain,
+        websiteId: website.id
       }, {
         component: 'scan-controller',
         event: 'no_active_scan'

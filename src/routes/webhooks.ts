@@ -75,6 +75,22 @@ async function scanWebhookMiddleware(req: Request, res: Response, next: NextFunc
       return res.status(404).json({ error: 'Website not found' });
     }
 
+    // BULLETPROOF CHECK: Verify scan belongs to the correct website
+    // This prevents processing webhooks for scans from deleted/recreated websites
+    if (scanData.website_id && scanData.website_id !== website.id) {
+      logger.warn({
+        message: 'Scan website_id mismatch - scan belongs to different website',
+        scanId,
+        scanWebsiteId: scanData.website_id,
+        currentWebsiteId: website.id,
+        domain: scanData.domain
+      }, {
+        component: 'webhook-middleware',
+        event: 'website_id_mismatch'
+      });
+      return res.status(404).json({ error: 'Scan not found for this website' });
+    }
+
     logger.debug({
       message: 'Fetching webhook secrets',
       websiteId: website.id,

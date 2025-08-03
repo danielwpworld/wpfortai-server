@@ -273,6 +273,9 @@ router.post('/scan-failed', scanWebhookMiddleware, async (req, res) => {
       error: error_message
     });
 
+    // Clean up the active scan entry from Redis to prevent stale state
+    await ScanStore.cleanupStaleScans(website.id);
+
     // Store scan failure in database
     await createWebsiteScanResult(website.id, {
       scan_id,
@@ -393,6 +396,7 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
     await ScanStore.updateScanStatus(scan_id, {
       ...scanData,
       status: 'completed',
+      progress: 100,
       completed_at: new Date().toISOString()
     });
 

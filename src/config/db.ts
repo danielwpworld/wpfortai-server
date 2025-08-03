@@ -92,6 +92,45 @@ export async function getWebsiteByDomain(domain: string): Promise<Website | null
   }
 }
 
+export async function getWebsiteById(id: string): Promise<Website | null> {
+  logger.debug({
+    message: 'Looking up website by ID',
+    id
+  }, {
+    component: 'database',
+    event: 'website_lookup_by_id'
+  });
+
+  try {
+    const result = await pool.query<Website>(
+      'SELECT * FROM websites WHERE id = $1',
+      [id]
+    );
+
+    const website = result.rows[0] || null;
+    logger.debug({
+      message: website ? 'Website found' : 'Website not found',
+      id,
+      found: !!website
+    }, {
+      component: 'database',
+      event: 'website_lookup_by_id_result'
+    });
+
+    return website;
+  } catch (error: any) {
+    logger.error({
+      message: 'Error looking up website by ID',
+      error,
+      id
+    }, {
+      component: 'database',
+      event: 'website_lookup_by_id_error'
+    });
+    throw error;
+  }
+}
+
 export async function createWebsiteScanResult(websiteId: string | number, scanData: {
   scan_id: string;
   infected_files: number;

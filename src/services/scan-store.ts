@@ -122,7 +122,7 @@ export class ScanStore {
     const updatedData: StoredScanData = {
       ...storedData,
       status: status.status,
-      progress: status.progress,
+      progress: status.status === 'completed' ? 100 : status.progress,
       files_scanned: status.files_scanned,
       total_files: status.total_files,
       completed_at: status.completed_at,
@@ -162,6 +162,13 @@ export class ScanStore {
       return null;
     }
     
+    // If scan is completed or failed, it's NOT active - clean it up and return null
+    if (scanData.status === 'completed' || scanData.status === 'failed') {
+      await redis.del(`${this.ACTIVE_SCAN_KEY_PREFIX}${websiteId}`);
+      await redis.del(`active_scan:${scanData.domain}`); // Clean up legacy key too
+      return null;
+    }
+    
     // Verify scan belongs to correct website
     if (scanData.website_id && scanData.website_id !== websiteId) {
       await this.cleanupStaleScans(websiteId);
@@ -179,6 +186,19 @@ export class ScanStore {
     console.warn('getActiveScan by domain is deprecated, use getActiveScanByWebsiteId instead');
     const scanId = await redis.get(`active_scan:${domain}`);
     if (!scanId) return null;
-    return this.getScan(scanId);
+    
+    const scanData = await this.getScan(scanId);
+    if (!scanData) {
+      await redis.del(`active_scan:${domain}`);
+      return null;
+    }
+    
+    // If scan is completed or failed, it's NOT active - clean it up and return null
+    if (scanData.status === 'completed' || scanData.status === 'failed') {
+      await redis.del(`active_scan:${domain}`);
+      return null;
+    }
+    
+    return scanData;
   }
 }

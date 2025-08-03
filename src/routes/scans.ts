@@ -3,7 +3,7 @@ import { WPSecAPI } from '../services/wpsec';
 import { ScanStore } from '../services/scan-store';
 import fetch from 'node-fetch';
 import type { ScanStartResponse, ScanStatus, ScanResults, QuarantineResponse, QuarantineListResponse, QuarantineRestoreResponse, BatchOperationResponse } from '../types/wpsec';
-import { getWebsiteByDomain, createWebsiteScanResult, updateScanDetectionStatus, updateScanDetectionByPath, createQuarantinedDetection, removeQuarantinedDetection, moveQuarantinedToDeleted, default as pool } from '../config/db';
+import { getWebsiteByDomain, getWebsiteById, createWebsiteScanResult, updateScanDetectionStatus, updateScanDetectionByPath, createQuarantinedDetection, removeQuarantinedDetection, moveQuarantinedToDeleted, default as pool } from '../config/db';
 import { logger } from '../services/logger';
 import { config } from 'dotenv';
 
@@ -12,6 +12,12 @@ config({ path: '.env.local' });
 
 // Get threat score threshold from environment or use default value of 4
 const THREAT_SCORE_THRESHOLD = parseInt(process.env.THREAT_SCORE_THRESHOLD || '4', 10);
+
+// Helper function to check if a string is a UUID
+function isUUID(str: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(str);
+}
 
 const router = Router();
 
@@ -240,8 +246,14 @@ router.get('/:domain/status/:scanId', async (req, res) => {
       event: 'get_scan_status'
     });
 
-    // Check if website exists
-    const website = await getWebsiteByDomain(domain);
+    // Check if website exists - handle both domain and UUID
+    let website;
+    if (isUUID(domain)) {
+      website = await getWebsiteById(domain);
+    } else {
+      website = await getWebsiteByDomain(domain);
+    }
+    
     if (!website) {
       return res.status(404).json({ error: 'Website not found' });
     }
@@ -274,7 +286,7 @@ router.get('/:domain/status/:scanId', async (req, res) => {
       // Format the response to match the expected structure
       const status = {
         status: redisScanData.status,
-        progress: redisScanData.progress || 0,
+        progress: redisScanData.status === 'completed' ? 100 : (redisScanData.progress || 0),
         files_scanned: redisScanData.files_scanned || '0',
         total_files: redisScanData.total_files || '0',
         completed_at: redisScanData.completed_at,
@@ -2799,7 +2811,14 @@ router.get('/:domain/detections', async (req, res) => {
       }
     }
     
-    const website = await getWebsiteByDomain(domain);
+    // Check if website exists - handle both domain and UUID
+    let website;
+    if (isUUID(domain)) {
+      website = await getWebsiteById(domain);
+    } else {
+      website = await getWebsiteByDomain(domain);
+    }
+    
     if (!website) {
       return res.status(404).json({ error: 'Website not found' });
     }
@@ -2949,9 +2968,6 @@ router.get('/:domain/detections', async (req, res) => {
       OFFSET $${latestScanId ? (status ? '5' : '4') : (status ? '4' : '3')}
     `;
     
-    // Log the query and parameters for debugging
-    console.log('EXECUTING QUERY:', dataQuery);
-    console.log('WITH PARAMETERS:', queryParams);
     
     // Execute data query
     const result = await pool.query(dataQuery, queryParams);
@@ -2981,15 +2997,6 @@ router.get('/:domain/detections', async (req, res) => {
     const countResult = await pool.query(countQuery, countParams);
     const totalCount = parseInt(countResult.rows[0].count);
     
-    logger.debug({
-      message: 'Retrieved scan detections',
-      domain,
-      count: result.rows.length,
-      totalCount
-    }, {
-      component: 'scan-controller',
-      event: 'scan_detections_retrieved'
-    });
     
     // Ensure detection_type is always an array of strings
     const detections = result.rows.map((row: any) => {
@@ -3016,8 +3023,6 @@ router.get('/:domain/detections', async (req, res) => {
       }
     };
     
-    // Log the full response for debugging
-    console.log('FULL DETECTION RESPONSE:', JSON.stringify(responseObj, null, 2));
     
     res.json(responseObj);
   } catch (error) {

@@ -201,7 +201,7 @@ export class WPSecAPI {
   }
 
   async getRestoreStatus(restoreId: string): Promise<BackupStatus> {
-    return this.request<BackupStatus>(`backup/restore/${restoreId}/status`);
+    return this.request<BackupStatus>(`backup/restore/status/${restoreId}`);
   }
 
   // WordPress Core Management

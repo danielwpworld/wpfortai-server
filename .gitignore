@@ -34,3 +34,9 @@ yarn-error.log*
 
 /logs
 email-debug.log
+
+# MCP configuration
+.mcp.json
+
+# Email preview files
+*-preview.html

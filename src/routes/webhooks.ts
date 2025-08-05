@@ -585,12 +585,110 @@ router.post('/scan-complete', scanWebhookMiddleware, async (req, res) => {
           }
         }
       }
+
+      // After storing detections, count active infections and send email if needed
+      try {
+        const threatScoreThreshold = parseInt(process.env.THREAT_SCORE_THRESHOLD || '5', 10);
+        
+        // Count active infections with threat_score >= threshold
+        const activeInfectionsResult = await pool.query(
+          `SELECT COUNT(*) as count FROM scan_detections 
+           WHERE scan_id = $1 AND status = 'active' AND threat_score >= $2`,
+          [scan_id, threatScoreThreshold]
+        );
+        
+        const activeInfectionsCount = parseInt(activeInfectionsResult.rows[0]?.count || '0', 10);
+        
+        // Send email if there are active infections
+        if (activeInfectionsCount > 0) {
+          // Get website owner's UID for email
+          const websiteOwnerResult = await pool.query(
+            'SELECT uid FROM websites WHERE id = $1',
+            [website.id]
+          );
+          
+          if (websiteOwnerResult.rows.length > 0) {
+            const ownerUid = websiteOwnerResult.rows[0].uid;
+            
+            // Call the vulnerabilities-found email API
+            try {
+              const emailResponse = await fetch(`http://localhost:${process.env.PORT || 3001}/api/emails/vulnerabilities-found`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-wpfort-token': process.env.INTERNAL_API_TOKEN || '123123123'
+                },
+                body: JSON.stringify({
+                  userId: ownerUid,
+                  websiteId: website.id,
+                  detectionCount: activeInfectionsCount
+                })
+              });
+              
+              if (emailResponse.ok) {
+                logger.info({
+                  message: 'Vulnerabilities found email sent successfully',
+                  websiteId: website.id,
+                  scanId: scan_id,
+                  activeInfectionsCount,
+                  ownerUid
+                }, {
+                  component: 'webhook',
+                  event: 'vulnerability_email_sent'
+                });
+              } else {
+                logger.warn({
+                  message: 'Failed to send vulnerabilities found email',
+                  websiteId: website.id,
+                  scanId: scan_id,
+                  activeInfectionsCount,
+                  status: emailResponse.status
+                }, {
+                  component: 'webhook',
+                  event: 'vulnerability_email_failed'
+                });
+              }
+            } catch (emailError) {
+              logger.error({
+                message: 'Error sending vulnerabilities found email',
+                error: emailError instanceof Error ? emailError : new Error(String(emailError)),
+                websiteId: website.id,
+                scanId: scan_id,
+                activeInfectionsCount
+              }, {
+                component: 'webhook',
+                event: 'vulnerability_email_error'
+              });
+            }
+          }
+        } else {
+          logger.info({
+            message: 'No active infections found, skipping vulnerability email',
+            websiteId: website.id,
+            scanId: scan_id,
+            threatScoreThreshold
+          }, {
+            component: 'webhook',
+            event: 'no_vulnerabilities_found'
+          });
+        }
+      } catch (error) {
+        logger.error({
+          message: 'Error checking for active infections',
+          error: error instanceof Error ? error : new Error(String(error)),
+          websiteId: website.id,
+          scanId: scan_id
+        }, {
+          component: 'webhook',
+          event: 'infection_check_error'
+        });
+      }
     }
 
     // Create and broadcast filesystem scan completion event
     try {
       // Get whether infections were found (detections above THREAT_SCORE_THRESHOLD)
-      const threatScoreThreshold = parseInt(process.env.THREAT_SCORE_THRESHOLD || '80', 10);
+      const threatScoreThreshold = parseInt(process.env.THREAT_SCORE_THRESHOLD || '5', 10);
       let infectionsFound = false;
       
       if (results && results.infected_files) {

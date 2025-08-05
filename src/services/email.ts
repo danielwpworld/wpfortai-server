@@ -46,29 +46,43 @@ const baseEmailTemplate = (title: string, content: string): string => {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title}</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    </style>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f5f5f5;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f5f5f5;">
+<body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #f8f9fa; line-height: 1.6;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8f9fa; min-height: 100vh;">
       <tr>
-        <td align="center" style="padding: 20px;">
-          <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <td align="center" style="padding: 40px 20px;">
+          <table width="100%" style="max-width: 600px;" cellpadding="0" cellspacing="0">
+            <!-- Header -->
             <tr>
-              <td style="padding: 30px 40px; text-align: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px 8px 0 0;">
-                <img src="https://www.wpfort.ai/wpfort-logo-dark.png" alt="WPFort" style="height: 40px; margin-bottom: 15px;">
-                <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;">${title}</h1>
+              <td style="background-color: #ffffff; padding: 40px 40px 30px; border-radius: 12px 12px 0 0; border-bottom: 1px solid #e9ecef;">
+                <table width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="center">
+                      <img src="https://wpfort.ai/wp_logo_newest.png" alt="WPFort" style="height: 32px; margin-bottom: 20px;">
+                      <h1 style="color: #1a1a1a; margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.02em;">${title}</h1>
+                    </td>
+                  </tr>
+                </table>
               </td>
             </tr>
+            <!-- Content -->
             <tr>
-              <td style="padding: 30px 40px;">
+              <td style="background-color: #ffffff; padding: 0 40px 40px;">
                 ${content}
               </td>
             </tr>
+            <!-- Footer -->
             <tr>
-              <td style="padding: 20px 40px; background-color: #2c3e50; text-align: center; border-radius: 0 0 8px 8px;">
-                <p style="color: #ffffff; margin: 0; font-size: 14px;"> 2025 WPFort Security. All rights reserved.</p>
-                <p style="color: #bdc3c7; margin: 5px 0 0 0; font-size: 12px;">
-                  <a href="https://wpfort.ai" style="color: #bdc3c7; text-decoration: underline;">Visit wpfort.ai</a> | 
-                  Trusted AI-powered protection for your WordPress sites
+              <td style="background-color: #f8f9fa; padding: 32px 40px; text-align: center; border-radius: 0 0 12px 12px; border-top: 1px solid #e9ecef;">
+                <p style="color: #6c757d; margin: 0 0 8px 0; font-size: 14px; font-weight: 400;">
+                  © 2025 WPFort Security. All rights reserved.
+                </p>
+                <p style="color: #9ca3af; margin: 0; font-size: 13px;">
+                  <a href="https://wpfort.ai" style="color: #4f46e5; text-decoration: none;">wpfort.ai</a> • 
+                  Trusted AI-powered protection for WordPress sites
                 </p>
               </td>
             </tr>
@@ -299,108 +313,126 @@ const sendNewWebsiteEmail = async (userId: string, websiteId: string): Promise<b
     const emailHtml = baseEmailTemplate(
       `${domain} is Now Protected`,
       `
-      <div style="padding: 20px;">
-        <p style="font-size: 18px; margin-bottom: 25px;">Hi ${firstName},</p>
-        
-        <p style="color: #2c3e50; margin: 0 0 25px 0; line-height: 1.7; font-size: 16px;">
-          Great news! Your new WordPress site <strong style="color: #4a5568;">${domain}</strong> has been successfully added to your WPFort.ai dashboard!
+      <div style="padding: 24px 0 0;">
+        <p style="color: #374151; font-size: 16px; margin: 0 0 32px 0; font-weight: 400;">
+          Hi ${firstName},
         </p>
         
-        <div style="background: linear-gradient(to right, #f0f9ff, #e6f7ff); border-radius: 12px; padding: 25px; margin: 30px 0; border-left: 5px solid #38b2ac;">
-          <h2 style="color: #2c5282; margin: 0 0 20px 0; font-size: 20px; font-weight: 600; display: flex; align-items: center;">
-            <span style="font-size: 24px; margin-right: 10px;">🔎</span> We've already run the first AI-powered scan and started monitoring for:
-          </h2>
-          
-          <ul style="color: #2d3748; padding-left: 15px; margin: 15px 0;">
-            <li style="margin-bottom: 8px; position: relative; padding-left: 5px;">
-              <span style="font-weight: 500;">Malware, backdoors, and brute-force attacks</span>
-            </li>
-            <li style="margin-bottom: 8px; position: relative; padding-left: 5px;">
-              <span style="font-weight: 500;">Plugin/theme vulnerabilities</span>
-            </li>
-            <li style="margin-bottom: 8px; position: relative; padding-left: 5px;">
-              <span style="font-weight: 500;">Suspicious file changes and unauthorized activity</span>
-            </li>
-            <li style="margin-bottom: 0; position: relative; padding-left: 5px;">
-              <span style="font-weight: 500;">SSL issues, uptime status, and more</span>
-            </li>
-          </ul>
+        <!-- Success Alert Box -->
+        <div style="background-color: #f0f9ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 24px; margin: 0 0 32px 0;">
+          <div style="display: flex; align-items: flex-start; margin-bottom: 16px;">
+            <div style="flex-shrink: 0; margin-right: 12px;">
+              <div style="width: 20px; height: 20px; background-color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 12px; font-weight: 600;">✓</span>
+              </div>
+            </div>
+            <div>
+              <h2 style="color: #1e40af; margin: 0 0 8px 0; font-size: 18px; font-weight: 600; line-height: 1.4;">
+                Website Successfully Added: ${domain} is now protected by WPFort.ai
+              </h2>
+              <p style="color: #1e40af; margin: 0; font-size: 14px; line-height: 1.5;">
+                We've already started monitoring your site for threats and vulnerabilities.
+              </p>
+            </div>
+          </div>
         </div>
         
-        <div style="background-color: #f7fafc; border: 1px solid #edf2f7; border-radius: 12px; padding: 25px; margin: 30px 0;">
-          <h3 style="color: #3182ce; margin: 0 0 15px 0; font-size: 20px; font-weight: 600; text-align: center;">You're currently on the <span style="background-color: #5a67d8; color: white; padding: 2px 8px; border-radius: 4px; font-weight: 700;">FREE</span> plan</h3>
+        <!-- Security Features Section -->
+        <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; margin: 0 0 32px 0;">
+          <h3 style="color: #111827; margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">
+            AI-Powered Security Monitoring Now Active
+          </h3>
           
-          <p style="color: #4a5568; margin: 15px 0; line-height: 1.6; text-align: center;">
-            It's perfect for personal blogs or hobby sites and includes:
+          <div style="space-y: 12px;">
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">Malware, backdoors, and brute-force attack detection</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">Plugin and theme vulnerability scanning</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">Suspicious file changes and unauthorized activity</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 0;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">SSL monitoring, uptime checks, and more</span>
+            </div>
+          </div>
+          
+          <div style="margin-top: 24px; text-align: center;">
+            <a href="https://www.wpfort.ai/app/website/${siteId}" 
+               style="display: inline-block; background-color: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; font-size: 14px; border: none; cursor: pointer;">
+              View Dashboard
+            </a>
+          </div>
+          
+          <p style="color: #6b7280; margin: 16px 0 0 0; font-size: 13px; text-align: center;">
+            Access your dashboard to view scan results and manage security settings.
+          </p>
+        </div>
+        
+        <!-- Current Plan Section -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin: 0 0 32px 0;">
+          <h3 style="color: #111827; margin: 0 0 8px 0; font-size: 16px; font-weight: 600; text-align: left;">
+            You're on the ${user.plan?.toUpperCase() || 'FREE'} Plan
+          </h3>
+          
+          <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px; text-align: left; line-height: 1.5;">
+            ${user.plan?.toLowerCase() === 'pro' ? 'Enjoy full protection with automatic threat removal and real-time monitoring.' : 'Perfect for personal blogs and hobby sites. Includes daily scans and basic protection.'}
           </p>
           
-          <div style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">Daily scans</span>
+          <div style="margin: 20px 0;">
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">Daily security scans</span>
             </div>
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">6 detection engines</span>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">6 threat detection engines</span>
             </div>
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">Backups, uptime checks, brute-force protection, and more</span>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">Automated backups and uptime monitoring</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 0;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">Brute-force attack protection</span>
             </div>
           </div>
           
-          <div style="background-color: #fefcbf; border-radius: 8px; padding: 20px; margin: 25px 0 20px 0; border: 1px solid #f6e05e;">
-            <p style="color: #744210; margin: 0; line-height: 1.6;">
-              <strong>Want twice-daily scanning, one-click malware removal, smart Reports, a full AI Security team around-the-clock and auto-updates?</strong>
+${user.plan?.toLowerCase() === 'free' || !user.plan ? `
+          <div style="background-color: #fef3c7; border: 1px solid #fbbf24; border-radius: 6px; padding: 16px; margin: 20px 0;">
+            <p style="color: #92400e; margin: 0 0 8px 0; font-size: 13px; font-weight: 600;">
+              Need automatic threat removal and 24/7 monitoring?
             </p>
-            <p style="color: #744210; margin: 10px 0 0 0; font-weight: 600;">
-              👉 Upgrade to PRO – just $29/month or $199/year for up to 3 sites.
+            <p style="color: #92400e; margin: 0; font-size: 13px;">
+              Upgrade to PRO for one-click malware removal and real-time protection.
             </p>
           </div>
           
-          <div style="text-align: center; margin: 25px 0 10px 0;">
+          <div style="text-align: center; margin-top: 24px;">
             <a href="https://www.wpfort.ai/#pricing" 
-               style="display: inline-block; background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%); color: #fff; padding: 14px 28px; border-radius: 50px; text-decoration: none; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(237, 137, 54, 0.25); transition: all 0.2s ease;">
-              Upgrade to PRO
+               style="display: inline-block; background-color: #1f9bf0; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; font-size: 14px;">
+              View Pricing Plans
             </a>
           </div>
+` : ''}
         </div>
         
-        <div style="background-color: #ebf8ff; border-radius: 12px; padding: 25px; margin: 30px 0;">
-          <h2 style="color: #2b6cb0; margin: 0 0 20px 0; font-size: 22px; font-weight: 600; display: flex; align-items: center;">
-            <span style="font-size: 24px; margin-right: 10px;">🛡️</span> Next Steps
-          </h2>
-          
-          <ul style="color: #2c5282; padding-left: 5px; list-style-type: none; margin: 20px 0;">
-            <li style="margin-bottom: 12px; display: flex;">
-              <span style="color: #4299e1; font-weight: bold; margin-right: 10px;">1.</span>
-              <span>Visit your dashboard to review your site's first protection report</span>
-            </li>
-            <li style="margin-bottom: 12px; display: flex;">
-              <span style="color: #4299e1; font-weight: bold; margin-right: 10px;">2.</span>
-              <span>Enable our Smart Firewall to boost your security scans</span>
-            </li>
-            <li style="margin-bottom: 12px; display: flex;">
-              <span style="color: #4299e1; font-weight: bold; margin-right: 10px;">3.</span>
-              <span>Explore upgrade options if your site is infected, handles sensitive data or customers or if you want total peace of mind while WPFort takes care of it all.</span>
-            </li>
-          </ul>
-          
-          <div style="text-align: center; margin: 25px 0 10px 0;">
-            <a href="https://www.wpfort.ai/app/website/${siteId}" 
-               style="display: inline-block; background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); color: #fff; padding: 14px 28px; border-radius: 50px; text-decoration: none; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(66, 153, 225, 0.3); transition: all 0.2s ease;">
-              View Your Dashboard
-            </a>
-          </div>
-        </div>
-        
-        <p style="color: #4a5568; margin: 20px 0; line-height: 1.7;">
-          Have questions? Our support team is always here to help.
-        </p>
-        
-        <p style="color: #4a5568; margin: 30px 0 5px 0; line-height: 1.7;">
-          Stay safe,<br>
-          – The WPFort.ai Team
+        <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.5;">
+          Best regards,<br>
+          The WPFort Security Team
         </p>
       </div>
     `);
@@ -416,7 +448,7 @@ const sendNewWebsiteEmail = async (userId: string, websiteId: string): Promise<b
  * Send email notification when vulnerabilities are found
  * @param userId - User ID
  * @param websiteId - Website ID
- * @param detectionCount - Number of vulnerabilities detected
+ * @param detectionCount - Total number of vulnerabilities detected (scan detections + application layer vulnerabilities)
  * @returns Whether email was sent successfully
  */
 const sendVulnerabilitiesFoundEmail = async (
@@ -438,91 +470,113 @@ const sendVulnerabilitiesFoundEmail = async (
     const severityColor = detectionCount > 5 ? '#dc3545' : detectionCount > 2 ? '#ffc107' : '#6c757d';
     
     const content = `
-      <div style="padding: 10px 0;">
-        <p style="color: #2d3748; font-size: 18px; margin-bottom: 20px;">
+      <div style="padding: 24px 0 0;">
+        <p style="color: #374151; font-size: 16px; margin: 0 0 32px 0; font-weight: 400;">
           Hi ${user.email?.split('@')[0] || 'there'},
         </p>
         
-        <div style="background-color: #FEF2F2; border-left: 4px solid #DC2626; padding: 20px; border-radius: 8px; margin: 25px 0;">
-          <h2 style="color: #991B1B; margin: 0 0 15px 0; font-size: 22px;">
-            <span style="font-size: 24px; margin-right: 10px; display: inline-block; vertical-align: middle;">⚠️</span> 
-            Alert: WPFort.ai just detected 
-            <span style="font-weight: 700;">${detectionCount} critical ${detectionCount === 1 ? 'vulnerability' : 'vulnerabilities'}</span>
-            on your site 
-            <span style="color: #2563EB;">${domain}</span>
-          </h2>
-          
-          <p style="color: #7F1D1D; margin: 15px 0; line-height: 1.7;">
-            These security issues could expose your site to malware, hackers, or performance problems if left unresolved.
-          </p>
+        <!-- Alert Box -->
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 24px; margin: 0 0 32px 0;">
+          <div style="display: flex; align-items: flex-start; margin-bottom: 16px;">
+            <div style="flex-shrink: 0; margin-right: 12px;">
+              <div style="width: 20px; height: 20px; background-color: #dc2626; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 12px; font-weight: 600;">!</span>
+              </div>
+            </div>
+            <div>
+              <h2 style="color: #991b1b; margin: 0 0 8px 0; font-size: 18px; font-weight: 600; line-height: 1.4;">
+                Security Alert: ${detectionCount} critical ${detectionCount === 1 ? 'vulnerability' : 'vulnerabilities'} detected on ${domain}
+              </h2>
+              <p style="color: #7f1d1d; margin: 0; font-size: 14px; line-height: 1.5;">
+                These security issues could expose your site to malware, hackers, or performance problems if left unresolved.
+              </p>
+            </div>
+          </div>
         </div>
         
-        <div style="background-color: #F7FAFC; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin: 25px 0;">
-          <h3 style="color: #2B6CB0; display: flex; align-items: center; margin: 0 0 15px 0; font-size: 18px;">
-            <span style="font-size: 20px; margin-right: 10px;">🛡️</span> These include:
+        <!-- Details Section -->
+        <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; margin: 0 0 32px 0;">
+          <h3 style="color: #111827; margin: 0 0 16px 0; font-size: 16px; font-weight: 600;">
+            Detected Issues
           </h3>
           
-          <ul style="color: #4A5568; padding-left: 15px; margin: 15px 0; line-height: 1.8;">
-            <li style="margin-bottom: 10px;">Vulnerable plugins or themes</li>
-            <li style="margin-bottom: 10px;">Configuration weaknesses</li>
-            <li style="margin-bottom: 10px;">Potential malware or suspicious activity</li>
-          </ul>
+          <div style="space-y: 12px;">
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">Vulnerable plugins or themes</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">Configuration weaknesses</span>
+            </div>
+            <div style="display: flex; align-items: center; margin-bottom: 0;">
+              <div style="width: 6px; height: 6px; background-color: #6b7280; border-radius: 50%; margin-right: 12px;"></div>
+              <span style="color: #374151; font-size: 14px;">Potential malware or suspicious activity</span>
+            </div>
+          </div>
           
-          <div style="text-align: center; margin: 25px 0 10px 0;">
+          <div style="margin-top: 24px; text-align: center;">
             <a href="https://www.wpfort.ai/app/website/${siteId}" 
-               style="display: inline-block; background: linear-gradient(135deg, #EF4444 0%, #B91C1C 100%); color: #fff; padding: 14px 28px; border-radius: 50px; text-decoration: none; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(239, 68, 68, 0.25); transition: all 0.2s ease;">
-              🔍 View & Resolve Issues Now »
+               style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; font-size: 14px; border: none; cursor: pointer;">
+              View & Resolve Issues
             </a>
           </div>
           
-          <p style="color: #4A5568; margin: 15px 0; font-size: 14px; text-align: center;">
-            You can view the full list and apply the required fixes through WPFort.
+          <p style="color: #6b7280; margin: 16px 0 0 0; font-size: 13px; text-align: center;">
+            Access your dashboard to view detailed information and apply fixes.
           </p>
         </div>
         
-        <div style="border: 1px solid #E2E8F0; border-radius: 8px; padding: 25px; margin: 30px 0; background: linear-gradient(to bottom, #F7FAFC 0%, #EDF2F7 100%);">
-          <h3 style="color: #2D3748; margin: 0 0 20px 0; font-size: 18px; text-align: center;">
-            Want these threats all handled automatically while you sleep?
+${user.plan?.toLowerCase() === 'free' || !user.plan ? `
+        <!-- Upgrade Section -->
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px; margin: 0 0 32px 0;">
+          <h3 style="color: #111827; margin: 0 0 8px 0; font-size: 16px; font-weight: 600; text-align: left;">
+            Get Auto-Pilot AI Protection
           </h3>
           
-          <p style="color: #4A5568; margin: 15px 0; line-height: 1.6; font-weight: 500; text-align: center;">
-            Upgrade to PRO or BUSINESS and let WPFort AI AutoPilot instantly:
+          <p style="color: #6b7280; margin: 0 0 20px 0; font-size: 14px; text-align: left; line-height: 1.5;">
+            Activate Sentinel AI Actions for automatic threat resolution while you focus on your business.
           </p>
           
-          <div style="display: flex; flex-direction: column; gap: 10px; margin: 20px 0;">
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">Remove malware in one click</span>
+          <div style="margin: 20px 0;">
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">One-click malware removal</span>
             </div>
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">Auto-update plugins/themes</span>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">Automatic plugin & theme updates</span>
             </div>
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">Block new threats in real-time</span>
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-size: 10px; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">Real-time threat blocking</span>
             </div>
-            <div style="display: flex; align-items: center;">
-              <span style="color: #38a169; font-weight: bold; margin-right: 10px; font-size: 18px;">✅</span>
-              <span style="color: #2d3748;">Schedule proactive scans</span>
+            <div style="display: flex; align-items: center; margin-bottom: 0;">
+              <div style="width: 16px; height: 16px; background-color: #10b981; border-radius: 50%; margin-right: 12px; display: flex; align-items: center; justify-content: center;">
+                <span style="color: white; font-weight: 600;">✓</span>
+              </div>
+              <span style="color: #374151; font-size: 14px;">Proactive security monitoring</span>
             </div>
           </div>
           
-          <p style="color: #4A5568; margin: 25px 0 20px; line-height: 1.7; text-align: center; font-weight: 500;">
-            <span style="color: #2B6CB0; font-size: 18px;">🧠</span> Focus on growing your site and business, we'll handle the rest.
-          </p>
-          
-          <div style="text-align: center; margin: 25px 0 10px 0;">
+          <div style="text-align: center; margin-top: 24px;">
             <a href="https://www.wpfort.ai/#pricing" 
-               style="display: inline-block; background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%); color: #fff; padding: 14px 28px; border-radius: 50px; text-decoration: none; font-weight: bold; font-size: 16px; box-shadow: 0 4px 6px rgba(66, 153, 225, 0.3); transition: all 0.2s ease;">
-              👉 See Plans & Pricing »
+               style="display: inline-block; background-color: #1f9bf0; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500; font-size: 14px;">
+              View Pricing Plans
             </a>
           </div>
         </div>
+` : ''}
         
-        <p style="color: #4a5568; margin: 30px 0 5px 0; line-height: 1.7;">
-          Stay protected,<br>
-          – The WPFort.ai Team
+        <p style="color: #6b7280; margin: 0; font-size: 14px; line-height: 1.5;">
+          Best regards,<br>
+          The WPFort Security Team
         </p>
       </div>
     `;

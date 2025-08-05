@@ -172,7 +172,22 @@ router.post('/vulnerabilities-found', async (req, res) => {
     
     const website = websiteResult.rows[0];
 
-    const success = await sendVulnerabilitiesFoundEmail(userId, websiteId, detectionCount);
+    // Fetch application layer vulnerabilities
+    const websiteDataResult = await pool.query(
+      'SELECT application_layer -> $1 as summary FROM website_data WHERE website_id = $2',
+      ['summary', websiteId]
+    );
+
+    let applicationLayerVulns = 0;
+    if (websiteDataResult.rows.length > 0 && websiteDataResult.rows[0].summary) {
+      const summary = websiteDataResult.rows[0].summary;
+      applicationLayerVulns = (summary.low || 0) + (summary.medium || 0) + 
+                            (summary.high || 0) + (summary.critical || 0);
+    }
+
+    const totalVulnerabilities = detectionCount + applicationLayerVulns;
+
+    const success = await sendVulnerabilitiesFoundEmail(userId, websiteId, totalVulnerabilities);
 
     if (success) {
       return res.status(200).json({ 

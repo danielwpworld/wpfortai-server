@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { ScanStore } from '../services/scan-store';
 import { WPSecAPI } from '../services/wpsec';
 import type { ScanResults } from '../types/wpsec';
-import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection, updateWebsiteScanResult } from '../config/db';
+import { createWebsiteScanResult, getWebsiteByDomain, createScanDetection, updateWebsiteScanResult, updateManualBackupJobProgress, syncWebsiteBackupsData } from '../config/db';
 import pool from '../config/db';
 import { verifyWebhook } from '../middleware/verify-webhook';
 import { WebhookSecrets } from '../services/webhook-secrets';
@@ -1820,6 +1820,274 @@ router.post('/update-item-failed', async (req, res) => {
     }, {
       component: 'update-item-failed-webhook',
       event: 'update_item_failed_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- BACKUP WEBHOOKS ---
+
+/**
+ * Webhook: backup-progress
+ * Body: { domain, backup_id, status, progress, message? }
+ */
+router.post('/backup-progress', async (req, res) => {
+  try {
+    const { domain, backup_id, status, progress, message } = req.body;
+    
+    if (!domain || !backup_id) {
+      return res.status(400).json({ error: 'domain and backup_id are required' });
+    }
+    
+    logger.info({
+      message: 'Backup progress webhook received',
+      domain,
+      backup_id,
+      status,
+      progress
+    }, {
+      component: 'backup-progress-webhook',
+      event: 'backup_progress_received'
+    });
+    
+    // Get website by domain
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      logger.warn({
+        message: 'Website not found for backup progress',
+        domain,
+        backup_id
+      }, {
+        component: 'backup-progress-webhook',
+        event: 'website_not_found'
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Update manual backup job progress
+    try {
+      await updateManualBackupJobProgress(website.id, backup_id, {
+        status: status || 'in_progress',
+        progress: Math.round(progress || 0)
+      });
+      
+      logger.info({
+        message: 'Backup progress updated',
+        domain,
+        backup_id,
+        websiteId: website.id,
+        status,
+        progress
+      }, {
+        component: 'backup-progress-webhook',
+        event: 'backup_progress_updated'
+      });
+    } catch (error) {
+      logger.error({
+        message: 'Error updating backup progress',
+        error: error instanceof Error ? error : new Error(String(error)),
+        domain,
+        backup_id
+      }, {
+        component: 'backup-progress-webhook',
+        event: 'backup_progress_update_error'
+      });
+      // Don't fail the webhook if DB update fails, just log it
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing backup progress webhook',
+      error: err
+    }, {
+      component: 'backup-progress-webhook',
+      event: 'backup_progress_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: backup-complete
+ * Body: { domain, backup_id, status, message? }
+ */
+router.post('/backup-complete', async (req, res) => {
+  try {
+    const { domain, backup_id, status, message } = req.body;
+    
+    if (!domain || !backup_id) {
+      return res.status(400).json({ error: 'domain and backup_id are required' });
+    }
+    
+    logger.info({
+      message: 'Backup complete webhook received',
+      domain,
+      backup_id
+    }, {
+      component: 'backup-complete-webhook',
+      event: 'backup_complete_received'
+    });
+    
+    // Get website by domain
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      logger.warn({
+        message: 'Website not found for backup completion',
+        domain,
+        backup_id
+      }, {
+        component: 'backup-complete-webhook',
+        event: 'website_not_found'
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Update manual backup job to completed
+    try {
+      await updateManualBackupJobProgress(website.id, backup_id, {
+        status: 'completed',
+        progress: 100,
+        completed_at: new Date().toISOString()
+      });
+      
+      logger.info({
+        message: 'Backup marked as completed',
+        domain,
+        backup_id,
+        websiteId: website.id
+      }, {
+        component: 'backup-complete-webhook',
+        event: 'backup_completed'
+      });
+    } catch (error) {
+      logger.error({
+        message: 'Error marking backup as completed',
+        error: error instanceof Error ? error : new Error(String(error)),
+        domain,
+        backup_id
+      }, {
+        component: 'backup-complete-webhook',
+        event: 'backup_complete_update_error'
+      });
+      // Don't fail the webhook if DB update fails, just log it
+    }
+    
+    // Sync backup list from WPSec API to keep data current
+    try {
+      await syncWebsiteBackupsData(website.id, domain);
+      logger.info({
+        message: 'Backup list synced after completion',
+        domain,
+        backup_id,
+        websiteId: website.id
+      }, {
+        component: 'backup-complete-webhook',
+        event: 'backup_sync_completed'
+      });
+    } catch (syncError) {
+      logger.error({
+        message: 'Error syncing backup list after completion',
+        error: syncError instanceof Error ? syncError : new Error(String(syncError)),
+        domain,
+        backup_id
+      }, {
+        component: 'backup-complete-webhook',
+        event: 'backup_sync_error'
+      });
+      // Don't fail the webhook if sync fails, just log it
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing backup complete webhook',
+      error: err
+    }, {
+      component: 'backup-complete-webhook',
+      event: 'backup_complete_error'
+    });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Webhook: backup-failed
+ * Body: { domain, backup_id, status, error_message }
+ */
+router.post('/backup-failed', async (req, res) => {
+  try {
+    const { domain, backup_id, status, error_message } = req.body;
+    
+    if (!domain || !backup_id) {
+      return res.status(400).json({ error: 'domain and backup_id are required' });
+    }
+    
+    logger.info({
+      message: 'Backup failed webhook received',
+      domain,
+      backup_id,
+      error_message
+    }, {
+      component: 'backup-failed-webhook',
+      event: 'backup_failed_received'
+    });
+    
+    // Get website by domain
+    const website = await getWebsiteByDomain(domain);
+    if (!website) {
+      logger.warn({
+        message: 'Website not found for backup failure',
+        domain,
+        backup_id
+      }, {
+        component: 'backup-failed-webhook',
+        event: 'website_not_found'
+      });
+      return res.status(404).json({ error: 'Website not found' });
+    }
+    
+    // Update manual backup job to failed
+    try {
+      await updateManualBackupJobProgress(website.id, backup_id, {
+        status: 'failed',
+        error_message: error_message || 'Backup failed'
+      });
+      
+      logger.info({
+        message: 'Backup marked as failed',
+        domain,
+        backup_id,
+        websiteId: website.id,
+        error_message
+      }, {
+        component: 'backup-failed-webhook',
+        event: 'backup_failed'
+      });
+    } catch (error) {
+      logger.error({
+        message: 'Error marking backup as failed',
+        error: error instanceof Error ? error : new Error(String(error)),
+        domain,
+        backup_id
+      }, {
+        component: 'backup-failed-webhook',
+        event: 'backup_failed_update_error'
+      });
+      // Don't fail the webhook if DB update fails, just log it
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({
+      message: 'Error processing backup failed webhook',
+      error: err
+    }, {
+      component: 'backup-failed-webhook',
+      event: 'backup_failed_error'
     });
     res.status(500).json({ error: err.message });
   }

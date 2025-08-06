@@ -1500,4 +1500,186 @@ export async function updateCoreReinstallRecord(
   }
 }
 
+/**
+ * Update manual backup job progress by website_id and backup_id
+ * @param websiteId The UUID of the website
+ * @param backupId The backup ID from WPSec
+ * @param updates Progress and status updates
+ */
+export async function updateManualBackupJobProgress(
+  websiteId: string,
+  backupId: string,
+  updates: {
+    status?: 'pending' | 'in_progress' | 'completed' | 'failed';
+    progress?: number;
+    error_message?: string;
+    completed_at?: string;
+  }
+) {
+  try {
+    logger.debug({
+      message: 'Updating manual backup job progress',
+      websiteId,
+      backupId,
+      updates
+    }, {
+      component: 'database',
+      event: 'update_manual_backup_progress'
+    });
+
+    // Build dynamic SET clause
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+
+    if (updates.status !== undefined) {
+      setClauses.push(`status = $${idx++}`);
+      values.push(updates.status);
+    }
+
+    if (updates.progress !== undefined) {
+      setClauses.push(`progress = $${idx++}`);
+      values.push(updates.progress);
+    }
+
+    if (updates.error_message !== undefined) {
+      setClauses.push(`error_message = $${idx++}`);
+      values.push(updates.error_message);
+    }
+
+    if (updates.completed_at !== undefined) {
+      setClauses.push(`completed_at = $${idx++}`);
+      values.push(updates.completed_at);
+    }
+
+    // Always update updated_at
+    setClauses.push(`updated_at = NOW()`);
+
+    // Add WHERE clause parameters
+    const query = `
+      UPDATE manual_backup_jobs 
+      SET ${setClauses.join(', ')} 
+      WHERE website_id = $${idx++} AND backup_id = $${idx}
+      RETURNING id, status, progress
+    `;
+    
+    values.push(websiteId, backupId);
+
+    const result = await pool.query(query, values);
+
+    if (result.rowCount === 0) {
+      logger.warn({
+        message: 'No manual backup job found to update',
+        websiteId,
+        backupId,
+        updates
+      }, {
+        component: 'database',
+        event: 'manual_backup_update_not_found'
+      });
+      return null;
+    }
+
+    logger.info({
+      message: 'Manual backup job progress updated',
+      websiteId,
+      backupId,
+      updates,
+      result: result.rows[0]
+    }, {
+      component: 'database',
+      event: 'manual_backup_progress_updated'
+    });
+
+    return result.rows[0];
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error updating manual backup job progress',
+      error: err,
+      websiteId,
+      backupId,
+      updates
+    }, {
+      component: 'database',
+      event: 'update_manual_backup_progress_error'
+    });
+    throw err;
+  }
+}
+
+/**
+ * Sync website backups data from WPSec API to website_data.backups_data
+ * Same as the backup sync worker functionality but called from webhooks
+ * @param websiteId The UUID of the website
+ * @param domain The website domain
+ */
+export async function syncWebsiteBackupsData(websiteId: string, domain: string) {
+  try {
+    logger.debug({
+      message: 'Syncing website backups data from WPSec API',
+      websiteId,
+      domain
+    }, {
+      component: 'database',
+      event: 'sync_website_backups_start'
+    });
+
+    // Fetch backups from WPSec API (same endpoint as backup sync worker)
+    const backendUrl = `${process.env.WPFORT_BACKEND_URL || 'http://localhost:3001'}/api/backups/${encodeURIComponent(domain)}/list`;
+    const response = await fetch(backendUrl, {
+      headers: {
+        'Content-Type': 'application/json',
+        'x-wpfort-token': process.env.WPFORT_BACKEND_TOKEN || '123123123'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: Failed to fetch backups from WPSec API`);
+    }
+
+    const backupsResponse = await response.json();
+    
+    if (!backupsResponse.success) {
+      throw new Error(`Failed to fetch backups: ${JSON.stringify(backupsResponse)}`);
+    }
+
+    // Update website_data.backups_data (same as backup sync worker)
+    const updateQuery = `
+      UPDATE website_data 
+      SET backups_data = $1::jsonb, fetched_at = NOW()
+      WHERE website_id = $2
+    `;
+    
+    await pool.query(updateQuery, [JSON.stringify(backupsResponse.data), websiteId]);
+    
+    logger.info({
+      message: 'Website backups data synced successfully',
+      websiteId,
+      domain,
+      backupsCount: backupsResponse.data.backups?.length || 0
+    }, {
+      component: 'database',
+      event: 'sync_website_backups_success'
+    });
+
+    return {
+      success: true,
+      backupsCount: backupsResponse.data.backups?.length || 0
+    };
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');
+    logger.error({
+      message: 'Error syncing website backups data',
+      error: err,
+      websiteId,
+      domain
+    }, {
+      component: 'database',
+      event: 'sync_website_backups_error'
+    });
+    throw err;
+  }
+}
+
 export default pool;

@@ -1638,7 +1638,7 @@ export async function syncWebsiteBackupsData(websiteId: string, domain: string) 
       throw new Error(`HTTP ${response.status}: Failed to fetch backups from WPSec API`);
     }
 
-    const backupsResponse = await response.json();
+    const backupsResponse = await response.json() as any;
     
     if (!backupsResponse.success) {
       throw new Error(`Failed to fetch backups: ${JSON.stringify(backupsResponse)}`);
@@ -1657,7 +1657,7 @@ export async function syncWebsiteBackupsData(websiteId: string, domain: string) 
       message: 'Website backups data synced successfully',
       websiteId,
       domain,
-      backupsCount: backupsResponse.data.backups?.length || 0
+      backupsCount: backupsResponse.data?.backups?.length || 0
     }, {
       component: 'database',
       event: 'sync_website_backups_success'
@@ -1665,7 +1665,7 @@ export async function syncWebsiteBackupsData(websiteId: string, domain: string) 
 
     return {
       success: true,
-      backupsCount: backupsResponse.data.backups?.length || 0
+      backupsCount: backupsResponse.data?.backups?.length || 0
     };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error) || 'Unknown error');

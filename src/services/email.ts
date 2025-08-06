@@ -219,9 +219,16 @@ const sendWelcomeEmail = async (userId: string): Promise<boolean> => {
         </div>
         
         <div style="background-color: #ebf8ff; border-radius: 10px; padding: 25px; margin: 30px 0;">
-          <h2 style="color: #2b6cb0; margin: 0 0 20px 0; font-size: 22px; font-weight: 600; display: flex; align-items: center;">
-            <span style="font-size: 28px; margin-right: 10px;">🚀</span> What To Do First
-          </h2>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="vertical-align: middle; padding-right: 10px;">
+                <span style="font-size: 28px;">🚀</span>
+              </td>
+              <td style="vertical-align: middle;">
+                <h2 style="color: #2b6cb0; margin: 0; font-size: 22px; font-weight: 600;">What To Do First</h2>
+              </td>
+            </tr>
+          </table>
           
           <ol style="color: #2c5282; padding-left: 25px; margin: 20px 0;">
             <li style="margin-bottom: 12px;">Log in to your dashboard</li>
@@ -240,20 +247,32 @@ const sendWelcomeEmail = async (userId: string): Promise<boolean> => {
         <div style="margin: 30px 0;">
           <h2 style="color: #4a5568; margin: 0 0 20px 0; font-size: 22px; font-weight: 600;">Why It Matters</h2>
           
-          <ul style="color: #4a5568; padding-left: 0; list-style-type: none;">
-            <li style="margin-bottom: 10px; display: flex; align-items: center;">
-              <span style="color: #667eea; font-weight: bold; margin-right: 10px;">→</span>
-              <span>Proactive defense 24/7 – automated malware removal and firewall protection</span>
-            </li>
-            <li style="margin-bottom: 10px; display: flex; align-items: center;">
-              <span style="color: #667eea; font-weight: bold; margin-right: 10px;">→</span>
-              <span>Save time & reduce stress – let WPFort.ai handle threats while you focus on your site</span>
-            </li>
-            <li style="margin-bottom: 10px; display: flex; align-items: center;">
-              <span style="color: #667eea; font-weight: bold; margin-right: 10px;">→</span>
-              <span>Scalable security – from single sites to full agency deployments</span>
-            </li>
-          </ul>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="width: 20px; vertical-align: middle; padding-right: 10px; padding-bottom: 10px;">
+                <span style="color: #667eea; font-weight: bold;">→</span>
+              </td>
+              <td style="vertical-align: middle; padding-bottom: 10px;">
+                <span style="color: #4a5568;">Proactive defense 24/7 – automated malware removal and firewall protection</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="width: 20px; vertical-align: middle; padding-right: 10px; padding-bottom: 10px;">
+                <span style="color: #667eea; font-weight: bold;">→</span>
+              </td>
+              <td style="vertical-align: middle; padding-bottom: 10px;">
+                <span style="color: #4a5568;">Save time & reduce stress – let WPFort.ai handle threats while you focus on your site</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="width: 20px; vertical-align: middle; padding-right: 10px;">
+                <span style="color: #667eea; font-weight: bold;">→</span>
+              </td>
+              <td style="vertical-align: middle;">
+                <span style="color: #4a5568;">Scalable security – from single sites to full agency deployments</span>
+              </td>
+            </tr>
+          </table>
         </div>
         
         <div style="background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 25px; margin: 30px 0;">

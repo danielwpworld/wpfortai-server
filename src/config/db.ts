@@ -1630,15 +1630,10 @@ export async function syncWebsiteBackupsData(websiteId: string, domain: string) 
     
     // Fetch backups directly from WPSec plugin (no HTTP roundtrip)
     const api = new WPSecAPI(domain);
-    const backupsData = await api.listBackups();
+    const backupsResponse = await api.listBackups() as any;
     
-    // Format response to match expected structure
-    const backupsResponse = {
-      success: true,
-      data: {
-        backups: backupsData
-      }
-    };
+    // The WPSec API returns the full response structure: { success: true, data: { backups: [...] } }
+    // No need to reformat since it's already in the expected structure
 
     // Update website_data.backups_data (same as backup sync worker)
     const updateQuery = `

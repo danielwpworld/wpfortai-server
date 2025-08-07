@@ -1625,24 +1625,20 @@ export async function syncWebsiteBackupsData(websiteId: string, domain: string) 
       event: 'sync_website_backups_start'
     });
 
-    // Fetch backups from WPSec API (same endpoint as backup sync worker)
-    const backendUrl = `${process.env.WPFORT_BACKEND_URL || 'http://localhost:3001'}/api/backups/${encodeURIComponent(domain)}/list`;
-    const response = await fetch(backendUrl, {
-      headers: {
-        'Content-Type': 'application/json',
-        'x-wpfort-token': process.env.WPFORT_BACKEND_TOKEN || '123123123'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: Failed to fetch backups from WPSec API`);
-    }
-
-    const backupsResponse = await response.json() as any;
+    // Import WPSecAPI for direct plugin communication
+    const { WPSecAPI } = await import('../services/wpsec');
     
-    if (!backupsResponse.success) {
-      throw new Error(`Failed to fetch backups: ${JSON.stringify(backupsResponse)}`);
-    }
+    // Fetch backups directly from WPSec plugin (no HTTP roundtrip)
+    const api = new WPSecAPI(domain);
+    const backupsData = await api.listBackups();
+    
+    // Format response to match expected structure
+    const backupsResponse = {
+      success: true,
+      data: {
+        backups: backupsData
+      }
+    };
 
     // Update website_data.backups_data (same as backup sync worker)
     const updateQuery = `

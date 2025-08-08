@@ -700,7 +700,7 @@ router.get('/:domain/connectivity', async (req, res) => {
       const lastUptime = uptimeResult.rows[0];
       const lastCheck = new Date(lastUptime.created_at);
       uptime = {
-        connected: lastCheck > tenMinutesAgo && lastUptime.status === 'up',
+        connected: lastCheck > tenMinutesAgo && lastUptime.status === 'healthy',
         last_check: lastUptime.created_at,
         status: lastUptime.status
       };

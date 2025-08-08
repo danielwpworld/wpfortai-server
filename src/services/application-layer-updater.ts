@@ -112,7 +112,7 @@ export class ApplicationLayerUpdater {
 
       // Remove vulnerabilities that are fixed in this version or earlier
       const originalVulnerabilities = item.vulnerabilities || [];
-      const remainingVulnerabilities = originalVulnerabilities.filter(vuln => {
+      const remainingVulnerabilities = originalVulnerabilities.filter((vuln: VulnerabilityData) => {
         if (!vuln.fixed_in) return true;
         
         // If the new version is >= fixed_in version, remove this vulnerability

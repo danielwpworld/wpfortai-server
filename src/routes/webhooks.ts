@@ -9,6 +9,7 @@ import { WebhookSecrets } from '../services/webhook-secrets';
 import { logger } from '../services/logger';
 import { broadcastToWebsite } from '../services/pusher';
 import { UpdateStore, UpdateItemStatus } from '../services/update-store';
+import { ApplicationLayerUpdater } from '../services/application-layer-updater';
 
 const router = Router();
 
@@ -1226,26 +1227,82 @@ router.post('/updates-completed', async (req, res) => {
     // Mark update as completed in Redis
     await UpdateStore.updateStatus(updateData.update_id, 'completed');
     
-    // Refresh vulnerabilities data in website_data
+    // Update application layer directly for all completed items
     try {
-      const api = new WPSecAPI(updateData.domain);
-      const applicationLayer = await api.getVulnerabilities();
+      let updatedCount = 0;
+      let failedCount = 0;
       
-      if (applicationLayer) {
-        const pool = (await import('../config/db')).default;
-        await pool.query(
-          `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
-          [applicationLayer, updateData.website_id]
-        );
+      // Process all items that were part of the update
+      if (updateData.items && updateData.items.length > 0) {
+        const completedItems = updateData.items.filter(item => item.status === 'completed');
+        
+        for (const completedItem of completedItems) {
+          const currentItemData = await ApplicationLayerUpdater.getItemFromApplicationLayer(
+            updateData.website_id, 
+            completedItem.slug, 
+            updateData.type === 'themes' ? 'themes' : 'plugins'
+          );
+          
+          if (currentItemData && currentItemData.latest_version && currentItemData.update_available) {
+            const success = await ApplicationLayerUpdater.updatePluginInApplicationLayer(
+              updateData.website_id,
+              completedItem.slug,
+              currentItemData.latest_version,
+              updateData.type === 'themes' ? 'themes' : 'plugins'
+            );
+            
+            if (success) {
+              updatedCount++;
+            } else {
+              failedCount++;
+            }
+          }
+        }
         
         logger.info({
-          message: 'Application layer updated after webhook completion',
+          message: 'Application layer updated directly after bulk completion',
           domain: updateData.domain,
-          websiteId: updateData.website_id
+          websiteId: updateData.website_id,
+          updatedCount,
+          failedCount,
+          totalCompleted: completedItems.length
         }, {
           component: 'update-completed-webhook',
-          event: 'application_layer_updated'
+          event: 'application_layer_direct_updated'
         });
+      }
+      
+      // Fall back to API if direct updates failed or no items were processed
+      if (failedCount > 0 || updatedCount === 0) {
+        logger.info({
+          message: 'Falling back to API for application layer update',
+          domain: updateData.domain,
+          websiteId: updateData.website_id,
+          reason: failedCount > 0 ? 'direct_updates_failed' : 'no_items_processed'
+        }, {
+          component: 'update-completed-webhook',
+          event: 'api_fallback_initiated'
+        });
+        
+        const api = new WPSecAPI(updateData.domain);
+        const applicationLayer = await api.getVulnerabilities();
+        
+        if (applicationLayer) {
+          const pool = (await import('../config/db')).default;
+          await pool.query(
+            `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+            [applicationLayer, updateData.website_id]
+          );
+          
+          logger.info({
+            message: 'Application layer updated via API after webhook completion',
+            domain: updateData.domain,
+            websiteId: updateData.website_id
+          }, {
+            component: 'update-completed-webhook',
+            event: 'application_layer_api_updated'
+          });
+        }
       }
     } catch (appErr) {
       const appError = appErr instanceof Error ? appErr : new Error(String(appErr));
@@ -1258,6 +1315,30 @@ router.post('/updates-completed', async (req, res) => {
         component: 'update-completed-webhook',
         event: 'application_layer_update_failed'
       });
+      
+      // Final API fallback
+      try {
+        const api = new WPSecAPI(updateData.domain);
+        const applicationLayer = await api.getVulnerabilities();
+        
+        if (applicationLayer) {
+          const pool = (await import('../config/db')).default;
+          await pool.query(
+            `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+            [applicationLayer, updateData.website_id]
+          );
+        }
+      } catch (finalErr) {
+        logger.error({
+          message: 'Final API fallback also failed in updates-completed webhook',
+          error: finalErr instanceof Error ? finalErr : new Error(String(finalErr)),
+          domain: updateData.domain,
+          websiteId: updateData.website_id
+        }, {
+          component: 'update-completed-webhook',
+          event: 'final_fallback_failed'
+        });
+      }
       // Do not fail the webhook if this step fails
     }
     
@@ -1519,27 +1600,87 @@ router.post('/update-item-complete', async (req, res) => {
         event: 'all_items_completed'
       });
       
-      // Refresh vulnerabilities data in website_data when all items are done
+      // Update application layer directly by updating completed items
       try {
-        const api = new WPSecAPI(updateData.domain);
-        const applicationLayer = await api.getVulnerabilities();
+        const completedItems = updatedData.items.filter(item => item.status === 'completed');
         
-        if (applicationLayer) {
-          const pool = (await import('../config/db')).default;
-          await pool.query(
-            `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
-            [applicationLayer, updateData.website_id]
+        // Try to extract version information from the completed items
+        // Note: We would need the new version info from the webhook or update data
+        // For now, we'll update based on available information
+        let updatedCount = 0;
+        let failedCount = 0;
+        
+        for (const completedItem of completedItems) {
+          // Get current item data to determine if we can update it
+          const currentItemData = await ApplicationLayerUpdater.getItemFromApplicationLayer(
+            updateData.website_id, 
+            completedItem.slug, 
+            updateData.type === 'themes' ? 'themes' : 'plugins'
           );
           
-          logger.info({
-            message: 'Application layer updated after item update completion',
+          if (currentItemData && currentItemData.latest_version && currentItemData.update_available) {
+            // Update to latest version if update was available
+            const success = await ApplicationLayerUpdater.updatePluginInApplicationLayer(
+              updateData.website_id,
+              completedItem.slug,
+              currentItemData.latest_version,
+              updateData.type === 'themes' ? 'themes' : 'plugins'
+            );
+            
+            if (success) {
+              updatedCount++;
+            } else {
+              failedCount++;
+            }
+          }
+        }
+        
+        logger.info({
+          message: 'Application layer updated directly after item completion',
+          domain: updateData.domain,
+          websiteId: updateData.website_id,
+          update_id,
+          updatedCount,
+          failedCount,
+          totalCompleted: completedItems.length
+        }, {
+          component: 'update-item-complete-webhook',
+          event: 'application_layer_direct_updated'
+        });
+        
+        // If direct updates failed for some items, fall back to API
+        if (failedCount > 0) {
+          logger.warn({
+            message: 'Some items failed direct update, falling back to API',
             domain: updateData.domain,
             websiteId: updateData.website_id,
-            update_id
+            failedCount
           }, {
             component: 'update-item-complete-webhook',
-            event: 'application_layer_updated'
+            event: 'fallback_to_api_needed'
           });
+          
+          // API fallback
+          const api = new WPSecAPI(updateData.domain);
+          const applicationLayer = await api.getVulnerabilities();
+          
+          if (applicationLayer) {
+            const pool = (await import('../config/db')).default;
+            await pool.query(
+              `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+              [applicationLayer, updateData.website_id]
+            );
+            
+            logger.info({
+              message: 'Application layer updated via API fallback',
+              domain: updateData.domain,
+              websiteId: updateData.website_id,
+              update_id
+            }, {
+              component: 'update-item-complete-webhook',
+              event: 'application_layer_api_fallback_success'
+            });
+          }
         }
       } catch (appErr) {
         const appError = appErr instanceof Error ? appErr : new Error(String(appErr));
@@ -1552,6 +1693,39 @@ router.post('/update-item-complete', async (req, res) => {
           component: 'update-item-complete-webhook',
           event: 'application_layer_update_failed'
         });
+        
+        // Final fallback to API if direct update completely fails
+        try {
+          logger.info({
+            message: 'Attempting final API fallback after direct update failure',
+            domain: updateData.domain,
+            websiteId: updateData.website_id
+          }, {
+            component: 'update-item-complete-webhook',
+            event: 'final_api_fallback_attempt'
+          });
+          
+          const api = new WPSecAPI(updateData.domain);
+          const applicationLayer = await api.getVulnerabilities();
+          
+          if (applicationLayer) {
+            const pool = (await import('../config/db')).default;
+            await pool.query(
+              `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+              [applicationLayer, updateData.website_id]
+            );
+          }
+        } catch (finalErr) {
+          logger.error({
+            message: 'Final API fallback also failed',
+            error: finalErr instanceof Error ? finalErr : new Error(String(finalErr)),
+            domain: updateData.domain,
+            websiteId: updateData.website_id
+          }, {
+            component: 'update-item-complete-webhook',
+            event: 'final_api_fallback_failed'
+          });
+        }
         // Do not fail the webhook if this step fails
       }
 
@@ -1708,17 +1882,72 @@ router.post('/update-item-failed', async (req, res) => {
         event: 'all_items_processed'
       });
       
-      // Still try to refresh application layer even if some items failed
+      // Update application layer for successful items, even if some failed
       try {
-        const api = new WPSecAPI(updateData.domain);
-        const applicationLayer = await api.getVulnerabilities();
+        const completedItems = updatedData.items.filter(item => item.status === 'completed');
+        let updatedCount = 0;
+        let failedCount = 0;
         
-        if (applicationLayer) {
-          const pool = (await import('../config/db')).default;
-          await pool.query(
-            `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
-            [applicationLayer, updateData.website_id]
+        // Process only the successfully completed items
+        for (const completedItem of completedItems) {
+          const currentItemData = await ApplicationLayerUpdater.getItemFromApplicationLayer(
+            updateData.website_id, 
+            completedItem.slug, 
+            updateData.type === 'themes' ? 'themes' : 'plugins'
           );
+          
+          if (currentItemData && currentItemData.latest_version && currentItemData.update_available) {
+            const success = await ApplicationLayerUpdater.updatePluginInApplicationLayer(
+              updateData.website_id,
+              completedItem.slug,
+              currentItemData.latest_version,
+              updateData.type === 'themes' ? 'themes' : 'plugins'
+            );
+            
+            if (success) {
+              updatedCount++;
+            } else {
+              failedCount++;
+            }
+          }
+        }
+        
+        logger.info({
+          message: 'Application layer updated for successful items after mixed results',
+          domain: updateData.domain,
+          websiteId: updateData.website_id,
+          update_id,
+          updatedCount,
+          failedCount,
+          totalCompleted: completedItems.length,
+          totalFailed: updatedData.items.filter(item => item.status === 'failed').length
+        }, {
+          component: 'update-item-failed-webhook',
+          event: 'application_layer_partial_updated'
+        });
+        
+        // Fallback to API if needed
+        if (failedCount > 0 || (completedItems.length > 0 && updatedCount === 0)) {
+          logger.info({
+            message: 'Falling back to API after partial update completion',
+            domain: updateData.domain,
+            websiteId: updateData.website_id,
+            update_id
+          }, {
+            component: 'update-item-failed-webhook',
+            event: 'api_fallback_after_partial'
+          });
+          
+          const api = new WPSecAPI(updateData.domain);
+          const applicationLayer = await api.getVulnerabilities();
+          
+          if (applicationLayer) {
+            const pool = (await import('../config/db')).default;
+            await pool.query(
+              `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+              [applicationLayer, updateData.website_id]
+            );
+          }
         }
       } catch (appErr) {
         logger.error({
@@ -1730,6 +1959,30 @@ router.post('/update-item-failed', async (req, res) => {
           component: 'update-item-failed-webhook',
           event: 'application_layer_update_failed'
         });
+        
+        // Final API fallback
+        try {
+          const api = new WPSecAPI(updateData.domain);
+          const applicationLayer = await api.getVulnerabilities();
+          
+          if (applicationLayer) {
+            const pool = (await import('../config/db')).default;
+            await pool.query(
+              `UPDATE website_data SET application_layer = $1, fetched_at = NOW() WHERE website_id = $2`,
+              [applicationLayer, updateData.website_id]
+            );
+          }
+        } catch (finalErr) {
+          logger.error({
+            message: 'Final API fallback failed in update-item-failed webhook',
+            error: finalErr instanceof Error ? finalErr : new Error(String(finalErr)),
+            domain: updateData.domain,
+            update_id
+          }, {
+            component: 'update-item-failed-webhook',
+            event: 'final_fallback_failed'
+          });
+        }
       }
 
       // Create and broadcast completion event (with failures)

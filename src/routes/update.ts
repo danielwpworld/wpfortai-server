@@ -300,11 +300,10 @@ router.post('/:domain/items', async (req, res) => {
       // Don't fail the endpoint if event creation fails
     }
     
-    // Call the WPSecAPI with the updateId for webhook tracking
-    try {
-      const updateResult = await api.updateItems(type, itemSlugs, updateId);
+    // Call the WPSecAPI with the updateId for webhook tracking (fire and forget)
+    api.updateItems(type, itemSlugs, updateId).then(() => {
       logger.info({ 
-        message: 'updateItems API call initiated', 
+        message: 'updateItems API call completed successfully', 
         domain, 
         type, 
         itemSlugs, 
@@ -312,24 +311,47 @@ router.post('/:domain/items', async (req, res) => {
         websiteId: website.id 
       }, { 
         component: 'update-controller', 
-        event: 'update_items_initiated' 
+        event: 'update_items_api_completed' 
       });
-
-      // Return immediately with the operation details
-      // The actual progress will be tracked via webhooks
-      res.json({ 
-        status: 'initiated',
-        update_id: updateId,
+    }).catch(async (apiError) => {
+      logger.error({
+        message: 'updateItems API call failed',
+        error: apiError instanceof Error ? apiError : new Error(String(apiError)),
         domain,
         type,
-        items: itemSlugs,
-        message: 'Update operation started. Use the status endpoint to track progress.'
+        itemSlugs,
+        updateId,
+        websiteId: website.id
+      }, {
+        component: 'update-controller',
+        event: 'update_items_api_failed'
       });
-    } catch (apiError) {
       // If API call fails, mark as failed in Redis
       await UpdateStore.updateStatus(updateId, 'failed', undefined, 'Failed to initiate update operation');
-      throw apiError;
-    }
+    });
+
+    logger.info({ 
+      message: 'updateItems API call initiated', 
+      domain, 
+      type, 
+      itemSlugs, 
+      updateId,
+      websiteId: website.id 
+    }, { 
+      component: 'update-controller', 
+      event: 'update_items_initiated' 
+    });
+
+    // Return immediately with the operation details
+    // The actual progress will be tracked via webhooks
+    res.json({ 
+      status: 'initiated',
+      update_id: updateId,
+      domain,
+      type,
+      items: itemSlugs,
+      message: 'Update operation started. Use the status endpoint to track progress.'
+    });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     const { domain } = req.params;

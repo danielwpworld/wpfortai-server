@@ -11,6 +11,7 @@ import webhookSecretsRouter from './webhook-secrets';
 import operatorRouter from './operator';
 import eventsRouter from './events';
 import emailsRouter from './emails';
+import usersRouter from './users';
 import { verifyToken } from '../middleware/verify-token';
 
 const router = Router();
@@ -28,6 +29,8 @@ router.use('/files', filesRouter);
 router.use('/update', updateRouter);
 router.use('/wordpress', wordpressRouter);
 router.use('/operator', operatorRouter);
+router.use('/users', usersRouter);
+
 
 router.use('/webhooks', webhooksRouter);
 router.use('/webhook-secrets', webhookSecretsRouter);

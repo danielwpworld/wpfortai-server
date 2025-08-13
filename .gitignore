@@ -40,3 +40,6 @@ email-debug.log
 
 # Email preview files
 *-preview.html
+
+#firebase
+wpfort_firebase.json

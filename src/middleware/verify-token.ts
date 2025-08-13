@@ -31,7 +31,8 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction) => 
     logger.warn({
       message: 'Missing API token',
       path: req.path,
-      ip: req.ip
+      ip: req.ip,
+      headers: req.headers
     }, {
       component: 'auth-middleware',
       event: 'missing_token'
@@ -39,7 +40,7 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction) => 
     return res.status(401).json({ error: 'API token is required' });
   }
 
-  // Verify against WPFORT_SERVER_API_KEY
+  // Verify against WPFORT_BACKEND_API_KEY  
   if (token !== process.env.WPFORT_SERVER_API_KEY) {
     logger.warn({
       message: 'Invalid API token',

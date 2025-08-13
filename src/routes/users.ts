@@ -72,7 +72,7 @@ router.post('/verify-and-create', async (req: Request, res: Response) => {
     } catch (error) {
       logger.error({
         message: 'Firebase token verification failed',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error : new Error(String(error))
       }, {
         component: 'users-route',
         event: 'token_verification_failed'
@@ -89,7 +89,7 @@ router.post('/verify-and-create', async (req: Request, res: Response) => {
       logger.error({
         message: 'Failed to get Firebase user',
         uid,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error : new Error(String(error))
       }, {
         component: 'users-route',
         event: 'firebase_user_fetch_failed'
@@ -181,7 +181,7 @@ router.post('/verify-and-create', async (req: Request, res: Response) => {
         message: 'Error creating user in database',
         uid,
         email,
-        error: dbError instanceof Error ? dbError.message : 'Unknown error'
+        error: dbError instanceof Error ? dbError : new Error(String(dbError))
       }, {
         component: 'users-route',
         event: 'database_user_creation_error'
@@ -193,7 +193,7 @@ router.post('/verify-and-create', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error({
       message: 'Error in verify-and-create endpoint',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error : new Error(String(error)),
       stack: error instanceof Error ? error.stack : undefined
     }, {
       component: 'users-route',

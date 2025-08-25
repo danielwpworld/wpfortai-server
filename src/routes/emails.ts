@@ -179,19 +179,27 @@ router.post('/vulnerabilities-found', async (req, res) => {
     );
 
     let vulnerablePlugins = 0;
+    let vulnerableThemes = 0;
     if (websiteDataResult.rows.length > 0 && websiteDataResult.rows[0].application_layer) {
       const appLayer = websiteDataResult.rows[0].application_layer as any;
       const plugins = appLayer?.plugins;
+      const themes = appLayer?.themes;
       // Prefer maintained counter if present; otherwise derive from items
       if (plugins && typeof plugins.vulnerable !== 'undefined') {
         vulnerablePlugins = Number(plugins.vulnerable) || 0;
       } else if (plugins && Array.isArray(plugins.items)) {
         vulnerablePlugins = plugins.items.filter((p: any) => Array.isArray(p?.vulnerabilities) && p.vulnerabilities.length > 0).length;
       }
+      if (themes && typeof themes.vulnerable !== 'undefined') {
+        vulnerableThemes = Number(themes.vulnerable) || 0;
+      } else if (themes && Array.isArray(themes.items)) {
+        vulnerableThemes = themes.items.filter((t: any) => Array.isArray(t?.vulnerabilities) && t.vulnerabilities.length > 0).length;
+      }
     }
 
-    // Determine latest website scan and count ACTIVE detections only
+    // Determine latest website scan and count ACTIVE detections with threat score threshold
     let lastScanActiveDetections = 0;
+    const threatThreshold = Number(process.env.THREAT_SCORE_THRESHOLD || 5);
     const lastScanRes = await pool.query(
       `SELECT scan_id
        FROM website_scans
@@ -206,14 +214,14 @@ router.post('/vulnerabilities-found', async (req, res) => {
       const activeCountRes = await pool.query(
         `SELECT COUNT(*)::int AS count
          FROM scan_detections
-         WHERE scan_id = $1 AND status = 'active'`,
-        [lastScanId]
+         WHERE scan_id = $1 AND status = 'active' AND COALESCE(threat_score,0) >= $2`,
+        [lastScanId, threatThreshold]
       );
       lastScanActiveDetections = activeCountRes.rows[0]?.count || 0;
     }
 
-    // Final total: ACTIVE detections from last scan + vulnerable plugins
-    const totalVulnerabilities = Number(lastScanActiveDetections) + Number(vulnerablePlugins);
+    // Final total: ACTIVE detections (>= threshold) from last scan + vulnerable plugins + vulnerable themes
+    const totalVulnerabilities = Number(lastScanActiveDetections) + Number(vulnerablePlugins) + Number(vulnerableThemes);
 
     const success = await sendVulnerabilitiesFoundEmail(userId, websiteId, totalVulnerabilities);
 

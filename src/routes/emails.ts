@@ -172,20 +172,48 @@ router.post('/vulnerabilities-found', async (req, res) => {
     
     const website = websiteResult.rows[0];
 
-    // Fetch application layer vulnerabilities
+    // Fetch application layer data to compute vulnerable plugins count
     const websiteDataResult = await pool.query(
-      'SELECT application_layer -> $1 as summary FROM website_data WHERE website_id = $2',
-      ['summary', websiteId]
+      'SELECT application_layer FROM website_data WHERE website_id = $1',
+      [websiteId]
     );
 
-    let applicationLayerVulns = 0;
-    if (websiteDataResult.rows.length > 0 && websiteDataResult.rows[0].summary) {
-      const summary = websiteDataResult.rows[0].summary;
-      applicationLayerVulns = (summary.low || 0) + (summary.medium || 0) + 
-                            (summary.high || 0) + (summary.critical || 0);
+    let vulnerablePlugins = 0;
+    if (websiteDataResult.rows.length > 0 && websiteDataResult.rows[0].application_layer) {
+      const appLayer = websiteDataResult.rows[0].application_layer as any;
+      const plugins = appLayer?.plugins;
+      // Prefer maintained counter if present; otherwise derive from items
+      if (plugins && typeof plugins.vulnerable !== 'undefined') {
+        vulnerablePlugins = Number(plugins.vulnerable) || 0;
+      } else if (plugins && Array.isArray(plugins.items)) {
+        vulnerablePlugins = plugins.items.filter((p: any) => Array.isArray(p?.vulnerabilities) && p.vulnerabilities.length > 0).length;
+      }
     }
 
-    const totalVulnerabilities = detectionCount + applicationLayerVulns;
+    // Determine latest website scan and count ACTIVE detections only
+    let lastScanActiveDetections = 0;
+    const lastScanRes = await pool.query(
+      `SELECT scan_id
+       FROM website_scans
+       WHERE website_id = $1
+       ORDER BY completed_at DESC NULLS LAST, started_at DESC NULLS LAST
+       LIMIT 1`,
+      [websiteId]
+    );
+
+    if (lastScanRes.rows.length > 0 && lastScanRes.rows[0].scan_id) {
+      const lastScanId = lastScanRes.rows[0].scan_id as string;
+      const activeCountRes = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM scan_detections
+         WHERE scan_id = $1 AND status = 'active'`,
+        [lastScanId]
+      );
+      lastScanActiveDetections = activeCountRes.rows[0]?.count || 0;
+    }
+
+    // Final total: ACTIVE detections from last scan + vulnerable plugins
+    const totalVulnerabilities = Number(lastScanActiveDetections) + Number(vulnerablePlugins);
 
     const success = await sendVulnerabilitiesFoundEmail(userId, websiteId, totalVulnerabilities);
 

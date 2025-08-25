@@ -204,6 +204,32 @@ export class WPSecAPI {
     return this.request<BackupStatus>(`backup/restore/status/${restoreId}`);
   }
 
+  async getBackupModuleStatus(): Promise<{
+    success: boolean;
+    data: {
+      module_installed: boolean;
+      module_active: string;
+      module_version: string | null;
+      classes_loaded: boolean;
+      endpoints_available: boolean;
+      plugin_path: string;
+      status: string;
+      message: string;
+    };
+  }> {
+    return this.request('backup/status');
+  }
+
+  async installBackupModule(): Promise<{
+    success: boolean;
+    message: string;
+    status: string;
+  }> {
+    return this.request('addon/install-backup', {
+      method: 'POST'
+    });
+  }
+
   // WordPress Core Management
   async checkCoreIntegrity(): Promise<CoreCheckResult> {
     return this.request<CoreCheckResult>('core-check');
